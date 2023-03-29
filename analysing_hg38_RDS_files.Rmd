@@ -1,0 +1,86 @@
+---
+title: "Untitled"
+author: "Sophie Paul"
+date: '2022-06-30'
+output: html_document
+---
+
+```{r}
+library(QDNAseq)
+library(tidyverse)
+```
+
+```{r}
+paths <- list.files(
+  path = "test_data/cnv_call_rds/", 
+  pattern = ".RDS", 
+  recursive = TRUE,
+  full.names = TRUE
+)
+
+data_names <- str_replace(
+  string = paths,
+  pattern = ".+((?:git|qdna).+)/(.+)\\.(.+)\\.RDS", 
+  replacement = "\\1.\\2.\\3"
+)
+
+cnv_calls <- map(
+  .x = paths,
+  .f = readRDS 
+)
+
+names(cnv_calls) <- data_names
+```
+
+# github_asntech.LP2103059-DNA_A01.100
+# github_asntech.LP2103059-DNA_A01.1000
+# github_asntech.LP2103059-DNA_A01.15
+# github_asntech.LP2103059-DNA_A01.30
+# github_asntech.LP2103059-DNA_A01.50
+# github_asntech.LP2103059-DNA_A01.500
+# github_asntech.LP2103581-DNA_A01.100
+# github_asntech.LP2103581-DNA_A01.1000
+# github_asntech.LP2103581-DNA_A01.15
+# github_asntech.LP2103581-DNA_A01.30
+# github_asntech.LP2103581-DNA_A01.50
+# github_asntech.LP2103581-DNA_A01.500
+# qdnaseq_dev.LP2103581-DNA_A01.100
+# qdnaseq_dev.LP2103581-DNA_A01.1000
+# qdnaseq_dev.LP2103581-DNA_A01.15
+# qdnaseq_dev.LP2103581-DNA_A01.30
+
+plot(cnv_calls[[1]])
+plot(cnv_calls[[2]])
+plot(cnv_calls[[3]])
+plot(cnv_calls[[4]])
+plot(cnv_calls[[5]])
+plot(cnv_calls[[6]])
+plot(cnv_calls[[7]])
+plot(cnv_calls[[8]])
+plot(cnv_calls[[9]])
+plot(cnv_calls[[10]])
+plot(cnv_calls[[11]])
+plot(cnv_calls[[12]])
+plot(cnv_calls[[13]])
+plot(cnv_calls[[14]])
+plot(cnv_calls[[15]])
+plot(cnv_calls[[16]])
+
+
+
+```{r}
+plot(cnv_calls[[15]])
+```
+
+
+```{r}
+cnv_calls["github_asntech.LP2103059-DNA_A01.50"]
+QDNAseq::exportBins(cnv_calls[["github_asntech.LP2103059-DNA_A01.50"]], format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
+QDNAseq::exportBins(cnv_calls[["github_asntech.LP2103059-DNA_A01.50"]], format = "tsv", type = "calls", file = "LP2103059-DNA_A01.raw_calls_all_depths.tsv")
+```
+
+```{r}
+QDNAseq::exportBins(cnv_calls[["github_asntech.LP2103581-DNA_A01.50"]], format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
+QDNAseq::exportBins(cnv_calls[["github_asntech.LP2103581-DNA_A01.50"]], format = "tsv", type = "calls", file = "LP2103581-DNA_A01.raw_calls_all_depths.tsv")
+```
+

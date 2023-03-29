@@ -1,0 +1,86 @@
+---
+title: "Untitled"
+author: "Sophie Paul"
+date: '2022-06-30'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(QDNAseq)
+
+# devtools::install_github(repo = "asntech/QDNAseq.hg38")
+library(QDNAseq.hg38)
+```
+
+## `make_RDS`
+
+reads in bin annotations/alignment data, performs CNV calls, writes object to disk
+
+```{r}
+make_cnv_call_RDS <- function(bin_size, bin_dir=NA, bam_directory, rds_output_dir){
+  # there are two hg38 bin annotation sources we want to test: github user (asntech) 
+  # and QDNASeq developer
+  if(is.na(bin_dir)){
+    bins <- getBinAnnotations(binSize=bin_size, genome="hg38")
+  } else {
+    bins <- getBinAnnotations(binSize=bin_size, genome="hg38", path=bin_dir)
+  }
+  read_counts <- binReadCounts(bins = bins, path = bam_directory)
+  cnvs <- read_counts %>%
+    applyFilters(residual=TRUE, blacklist=100) %>%
+    call_cnvs()
+  saveRDS(object = cnvs, file = paste0(rds_output_dir, "/", basename(bam_directory), ".", bin_size, ".RDS"))
+}
+```
+
+## LP2103059-DNA_A01/PBTP_CUH108_T
+
+#### asntech
+
+```{r}
+walk(
+  .x = c(15, 30, 50, 100, 500, 1000), 
+  .f = make_cnv_call_RDS, 
+  bam_directory = "~/workspace/investigations/qdnaseq/1-initial_testing/bams/LP2103059-DNA_A01/", 
+  rds_output_dir = "test_data/cnv_call_rds/github_asntech"
+)
+```
+
+#### QDNAseq devs
+
+```{r}
+walk(
+  .x = c(15, 30, 100, 1000),
+  .f = make_cnv_call_RDS,
+  bam_directory = "~/workspace/investigations/qdnaseq/1-initial_testing/bams/LP2103059-DNA_A01/",
+  bin_dir = "bin_annotations/from_devs/",
+  rds_output_dir = "test_data/cnv_call_rds/qdnaseq_dev"
+)
+```
+
+## LP2103581-DNA_A01/PBTP_CUH135_T
+
+#### asntech
+
+```{r}
+walk(
+  .x = c(50, 100, 500, 1000), 
+  .f = make_cnv_call_RDS, 
+  bam_directory = "~/workspace/investigations/qdnaseq/1-initial_testing/bams/LP2103581-DNA_A01/", 
+  rds_output_dir = "test_data/cnv_call_rds/github_asntech"
+)
+```
+
+#### QDNAseq devs
+
+```{r}
+walk(
+  .x = c(15, 30, 100, 1000),
+  .f = make_cnv_call_RDS,
+  bam_directory = "~/workspace/investigations/qdnaseq/1-initial_testing/bams/LP2103581-DNA_A01/",
+  bin_dir = "bin_annotations/from_devs/",
+  rds_output_dir = "test_data/cnv_call_rds/qdnaseq_dev"
+)
+```
+

@@ -1,0 +1,121 @@
+---
+title: "hg38 bin annotations"
+author: "Sophie Paul"
+date: '2022-06-20'
+output: html_document
+---
+
+```{r, eval=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install(version = "3.15")
+BiocManager::install("QDNAseq")
+BiocManager::install("BSgenome")
+BiocManager::install("BSgenome.Hsapiens.UCSC.hg38")
+```
+
+```{r}
+library(QDNAseq)
+library(Biobase)
+library(BSgenome.Hsapiens.UCSC.hg38)
+```
+
+```{r}
+# set the bin size
+binSize <- 15
+# create bins from the reference genome
+bins <- createBins(bsgenome=BSgenome.Hsapiens.UCSC.hg38, binSize=binSize)
+```
+
+http://hgdownload.soe.ucsc.edu/gbdb/hg38/hoffmanMappability/k50.Umap.MultiTrackMappability.bw
+
+What is it?: 
+- https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg38&g=mappability
+- https://bismap.hoffmanlab.org/
+
+Also needed https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigWigAverageOverBed binary
+
+```
+mkdir -p ${HOME}/bin
+wget -P ${HOME}/bin https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigWigAverageOverBed
+chmod u+x ${HOME}/bin/bigWigAverageOverBed
+```
+
+```{r}
+# calculate mappabilites per bin from ENCODE mapability tracks
+bins$mappability <- calculateMappability(bins,
+                                         bigWigFile="bin_annotations/k50.Umap.MultiTrackMappability.bw",
+                                         bigWigAverageOverBed="/home/pauls4/bin/bigWigAverageOverBed")
+```
+
+blacklist: https://github.com/Boyle-Lab/Blacklist/blob/master/lists/hg38-blacklist.v2.bed.gz
+(hg38, v2: https://www.nature.com/articles/s41598-019-45839-z Boyle Lab)
+
+```
+cut -f4 hg38-blacklist.v2.bed | sort | uniq -c
+    594 High Signal Region
+     42 Low Mappability
+```
+
+```{r}
+bins$blacklist <- calculateBlacklist(bins, bedFiles = "bin_annotations/hg38-blacklist.v2.bed.gz")
+```
+
+```{r}
+b#ins$blacklist <- 
+
+chromosome <- bins$chromosome
+start <- bins$start
+end <- bins$end
+
+calculateBlacklistByRegions(bins, cbind(chromosome, start, end))
+```
+
+```{r}
+library(Biobase)
+library(QDNAseq)
+
+args <- commandArgs(trailingOnly=TRUE)
+
+ctrl <- binReadCounts(bins, path=args[1])
+ctrl <- applyFilters(ctrl, residual=FALSE, blacklist=FALSE, mappability=FALSE, bases=FALSE)
+bins$residual <- iterateResiduals(ctrl)
+bins$use <- bins$chromosome %in% as.character(1:22) & bins$bases > 0
+bins <- AnnotatedDataFrame(bins, varMetadata=data.frame(labelDescription=c(
+  "Chromosome name",
+  "Base pair start position",
+  "Base pair end position",
+  "Percentage of non-N nucleotides (of full bin size)",
+  "Percentage of C and G nucleotides (of non-N nucleotides)",
+  "Average mappability of 50mers with a maximum of 2 mismatches",
+  "Percent overlap with ENCODE blacklisted regions",
+  "Median loess residual from 1000 Genomes (50mers)",
+  "Whether the bin should be used in subsequent analysis steps"),
+  row.names=colnames(bins)
+  )
+)
+#attr(bins, "QDNAseq") <- list(
+#+ author="Ilari Scheinin",
+#+ date=Sys.time(),
+#+ organism="Hsapiens",
+#+ build="hg19",
+#+ version=packageVersion("QDNAseq"),
+#+ md5=digest::digest(bins@data),
+#+ sessionInfo=sessionInfo()
+```
+
+
+
+```{r}
+library(tidyverse)
+df <- data.frame(x = seq(1:10), y = rnorm(10, 10, 5))
+m <- mean(df$y)
+theme_set(theme_bw())
+```
+
+```{r}
+ggplot(df, aes(x = x, y = y)) +
+  geom_point() +
+  geom_hline(yintercept = m) +
+  geom_segment(aes(x = x, xend = x, y = y), yend = m, linetype = "dashed", alpha = 0.4)
+```

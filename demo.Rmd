@@ -1,0 +1,168 @@
+---
+title: "demo"
+author: "Sophie Paul"
+date: '2022-06-01'
+output: html_document
+---
+
+TODOs: generate hg38 bin annotations
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, eval=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("QDNAseq")
+BiocManager::install("QDNAseq.hg19")
+```
+
+```{r}
+library(QDNAseq)
+library(tidyverse)
+```
+
+## Setting bin size
+
+Larger bin sizes recommended for shallow read depth: https://blog.goldenhelix.com/cnvcallerwholegenome/ (need to confirm)
+
+Possible bin annotations:
+
+- hg19.1kbp.SR50
+- hg19.5kbp.SR50
+- hg19.10kbp.SR50
+- hg19.15kbp.SR50
+- hg19.30kbp.SR50
+- hg19.50kbp.SR50
+- hg19.100kbp.SR50
+- hg19.500kbp.SR50 
+- hg19.1000kbp.SR50
+
+PE supported but not included in package.
+
+```{r}
+# Using largest bin size supported
+bins <- getBinAnnotations(binSize=1000)
+```
+
+# Data source
+
+https://platform.dnanexus.com/panx/projects/GBFb6Qj4gK6P5jQ331vVP63g/data/
+
+# sample A
+
+### Read data
+
+```{r, eval=FALSE}
+readCounts <- binReadCounts(bins, path="test_data/") # legacy TSO500 data test
+sample_a_readCounts <- binReadCounts(bins, path="~/workspace/investigations/qdnaseq/1-initial_testing/bams/pb/LP2103581-DNA_A01")
+
+# haven't enough disk space to do both samples together
+#save(sample_a_readCounts, file="LP2103581-DNA_A01.qdnaseq.Rdata")
+```
+
+```{r}
+load("LP2103581-DNA_A01.qdnaseq.Rdata")
+```
+
+```{r}
+noisePlot(sample_a_readCounts)
+```
+
+#### Filtering
+
+
+```{r}
+readCountsFiltered_a <- sample_a_readCounts %>%
+    applyFilters(residual=TRUE, blacklist=100)
+```
+
+Isobar plot to visualise batch effects
+
+- wonky because not WGS?
+
+```{r}
+isobarPlot(readCountsFiltered_a)
+```
+
+Calling pipeline:
+
+```{r}
+call_cnvs <- function(filtered_counts){
+  filtered_counts %>%
+    estimateCorrection() %>%
+    correctBins() %>%
+    normalizeBins() %>%
+    smoothOutlierBins() %>%
+    # sqrt means Anscombe transform; better than log2 at var stabilisation
+    segmentBins(transformFun="sqrt") %>%
+    normalizeSegmentedBins() %>%
+    callBins()
+}
+
+copyNumbersCalled_a <- call_cnvs(readCountsFiltered_a)
+```
+
+```{r}
+plot(copyNumbersCalled_a); highlightFilters()
+```
+
+Red: CGHBase probloss output
+Blue: CGHBase probgain output
+
+i.e.: `CGHBase::probloss(copyNumbersCalled_a)`
+
+# sample B
+
+```{r}
+#sample_b_readCounts <- binReadCounts(bins, path = "~/workspace/investigations/qdnaseq/1-initial_testing/bams/LP2103059-DNA_A01")
+#save(sample_b_readCounts, file = "LP2103059-DNA_A01.qdnaseq.Rdata")
+```
+
+```{r}
+load("LP2103059-DNA_A01.qdnaseq.Rdata")
+```
+
+```{r}
+readCountsFiltered_b <- sample_b_readCounts %>%
+    applyFilters(residual=TRUE, blacklist=100)
+```
+
+```{r}
+isobarPlot(readCountsFiltered_b)
+```
+
+```{r}
+copyNumbersCalled_b <- call_cnvs(readCountsFiltered_b)
+```
+
+```{r}
+plot(copyNumbersCalled_b)
+highlightFilters()
+```
+
+```{r}
+QDNAseq::noisePlot(copyNumbersCalled_b)
+```
+
+```{r}
+png(filename = "test_data/%s")
+plot(copyNumbersCalled)
+dev.off()
+```
+
+```{r}
+copyNumbersCalled@featureData@data %>%
+  filter(chromosome == "7", start < 3000001) %>%
+  ggplot() +
+  geom_segment(aes(x = start, xend = end, y = gc, yend = gc))
+```
+
+```{r}
+exportBins(copyNumbersCalled_a, format="seg", file = "%s")
+copyNumbersCalled_b@assayData$segmented %>% data.frame() %>% `[`("9:1-1000000",)
+```
+
+
