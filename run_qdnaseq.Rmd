@@ -1,0 +1,77 @@
+---
+title: "run_me.Rmd"
+author: "Sophie Paul"
+date: '2023-04-05'
+output: html_document
+---
+
+# QDNASeq pipeline
+
+### Step 1: Load libraries
+
+```{r}
+library(tidyverse)
+library(QDNAseq)
+library(QDNAseq.hg38)
+```
+
+### Step 2: Read in bin annotations
+
+Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
+
+```{r}
+bins <- getBinAnnotations(binSize=50, genome="hg38")
+```
+
+### Step 3: Read in BAM(s)
+
+You can read in a directory of BAM files
+
+```{r}
+readCounts <- binReadCounts(bins, path = "<BAM_PATH>")
+```
+
+### Step 4: Run CNV calling algo
+
+```{r}
+# call copy numbers
+copyNumbersCalled <- readCounts %>%
+
+    # Filter reads based on a) residuals after fitting to a model, 
+    # and b) on amount  of acceptable overlap with 
+    # blacklisted (i.e. problematic) regions/known artifacts
+    applyFilters(residual=TRUE, blacklist=100) %>%
+
+    # Estimate and correct read counts as a function of GC content and
+    # mappability (removes further noise from e.g. FFPE)
+    estimateCorrection() %>%
+    correctBins() %>%
+
+    # Normalise and smooth corrected read counts
+    normalizeBins() %>%
+    smoothOutlierBins() %>%
+
+    # Segment bins: i.e. group similar regions together
+    # in a single "line" or "window" in terms of read count value
+    segmentBins(transformFun="sqrt") %>%
+    normalizeSegmentedBins() %>%
+    callBins()
+```
+
+### Step 5: Save plot output
+
+```{r}
+png(filename = "output_plots/%s")
+plot(copyNumbersCalled)
+dev.off()
+```
+
+### Step 6: Save tabular data
+
+```{r}
+## Summarised calls - one file per sample
+QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
+
+## Raw calls - one file that contains *all* samples together
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "shallow_wgs_validation.raw_calls_all_depths.tsv")
+```
