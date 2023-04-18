@@ -101,6 +101,7 @@ for(i in 1:length(total_files)) { #up to 4 samples
   tsv_file <- read.csv(paste(mydir, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
   sum_df <- rbind(sum_df, tsv_file)
   file_name <- file_name[[1]] #get the dataframe from the list
+  file_name <- gsub("_S.*", "", file_name)
   assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
   file_name <- NULL
   tsv_file <- NULL
@@ -168,7 +169,20 @@ ggplotly(logration_df_pca.plot)
 #### How many CN in our samples and truth dataset
 
 ```{r}
-C5_WGS <- read.csv(paste(mydir, "CUH190 CNVs.csv", sep ="/"), sep = "\t")
+sample="CUH190"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep ="/"))
+head(Case_WGS)
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+
+# save the three columns
+write.table(Case_WGS_location[,c("chr", "start", "end")], 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
 ```
 
 #### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
@@ -178,6 +192,20 @@ C5_WGS <- read.csv(paste(mydir, "CUH190 CNVs.csv", sep ="/"), sep = "\t")
 * Truth WGS CN NOT present in predicted sWGS CN = FP
 
 ```{r}
+# get the summaried data for samples associated to this case
+C5_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+
+# make a bed file output to do intersect with these 4 samples
+for(N in C5_samples) { 
+  # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+  assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+  print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+  # save the dataframe
+  write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+            col.names = F, row.names = F, quote = F)
+}
+
+
 
 ```
 
