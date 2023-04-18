@@ -36,12 +36,36 @@ make_bed_from_sum_df <- function(SWGS_sum) {
   SWGS_sum <- as.data.frame(SWGS_sum[!duplicated(SWGS_sum), ])
   colnames(SWGS_sum) <- "location"
   SWGS_sum <- separate(data = SWGS_sum, col = location, into = c("chr", "start", "end"))
-  SWGS_sum <- as.data.frame(lapply(SWGS_sum, as.integer))
+
   return(SWGS_sum)
   
 }
 
+bed_intersect <- function(sample_bed, truth_bed){
+  # both dataframes must be chr,start,end
+  # truth is expected to have X or Y chr 
+  # pred is not expected to have X or Y 
+  
+  # finds the interaction of the sample and truth bed file
+  
+  # convert truth data to int, do not touch chr
+  truth_bed$start <- as.integer(truth_bed$start)
+  truth_bed$end <- as.integer(truth_bed$end)
 
+  # convert pred data to int
+  sample_bed$chr <- as.character(sample_bed$chr)
+  sample_bed$start <- as.integer(sample_bed$start)
+  sample_bed$end <- as.integer(sample_bed$end)
+  
+  # sort the bed files
+  truth_bed.sort <- bedr.sort.region(truth_bed, check.chr = F, verbose = F)
+  sample_bed.sort <- bedr.sort.region(sample_bed, check.chr = F, verbose = F)
+  # intersect
+  pred.int.truth <- bedr.join.region(sample_bed.sort, truth_bed.sort, check.chr = F, verbose = F)
+  # print
+  return(pred.int.truth)
+  
+}
 ```
 
 # Quality control
@@ -180,7 +204,6 @@ head(Case_WGS)
 Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
 Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
 truth_bed <- Case_WGS_location[,c("chr", "start", "end")]
-truth_bed <- as.data.frame(lapply(truth_bed, as.integer))
 
 # save the three columns
 write.table(truth_bed, 
@@ -198,35 +221,34 @@ write.table(truth_bed,
 # get the summaried data for samples associated to this case
 C5_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
 
+Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
+colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
+rownames(Case_truthvspredicted_df) <- C5_samples
 # make a bed file output to do intersect with these 4 samples
-for(N in C5_samples) { 
+for(i in 1:length(C5_samples)) { 
+  N = C5_samples[i]
   # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
   assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
   print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
   # save the dataframe
   write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
             col.names = F, row.names = F, quote = F)
+  
+  # compare to the truth dataset
+  # row = sample, column = TP
+  Case_truthvspredicted_df[i,1] <- nrow(bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = truth_bed))
+  # row = sample, column = FP
+  Case_truthvspredicted_df[i,2] 
+  # row = sample, column = TN
+  Case_truthvspredicted_df[i,3] 
 }
 
 ```
+
+
 ```{r}
 
 
-truth_bed$chr <- paste("chr", truth_bed$chr, sep = "")
-SWGS_N6_4627_bed$chr <- paste("chr", SWGS_N6_4627_bed$chr, sep = "")
-# intersect each sample against truth
-if (check.binary("bedtools")) {
-  
-    # sort data
-    truth_bed.sort <- bedr.sort.region(truth_bed)
-    SWGS_N6_4627_bed.sort <- bedr.sort.region(SWGS_N6_4627_bed)
-
-    # intersect / join
-    a.int1 <- bedr.join.region(SWGS_N6_4627_bed.sort, truth_bed.sort);
-
-    # print
-    cat(" REGION a intersect: \n"); print(a.int1); cat("\n");
-    }
 
 ```
 
