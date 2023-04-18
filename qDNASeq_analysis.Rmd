@@ -10,7 +10,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # setwd("~/Documents/Projects/cancer/sWGS")
-
+library(bedr)
 library(dplyr)
 library(ggplot2)
 library(ggfortify)
@@ -36,6 +36,7 @@ make_bed_from_sum_df <- function(SWGS_sum) {
   SWGS_sum <- as.data.frame(SWGS_sum[!duplicated(SWGS_sum), ])
   colnames(SWGS_sum) <- "location"
   SWGS_sum <- separate(data = SWGS_sum, col = location, into = c("chr", "start", "end"))
+  SWGS_sum <- as.data.frame(lapply(SWGS_sum, as.integer))
   return(SWGS_sum)
   
 }
@@ -169,7 +170,7 @@ ggplotly(logration_df_pca.plot)
 #### How many CN in our samples and truth dataset
 
 ```{r}
-sample="CUH190"
+sample="CUH191"
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep ="/"))
 head(Case_WGS)
@@ -178,9 +179,11 @@ head(Case_WGS)
 # remove chr 
 Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
 Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+truth_bed <- Case_WGS_location[,c("chr", "start", "end")]
+truth_bed <- as.data.frame(lapply(truth_bed, as.integer))
 
 # save the three columns
-write.table(Case_WGS_location[,c("chr", "start", "end")], 
+write.table(truth_bed, 
             file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
             sep = "\t", col.names = F, row.names = F, quote = F)
 ```
@@ -205,7 +208,25 @@ for(N in C5_samples) {
             col.names = F, row.names = F, quote = F)
 }
 
+```
+```{r}
 
+
+truth_bed$chr <- paste("chr", truth_bed$chr, sep = "")
+SWGS_N6_4627_bed$chr <- paste("chr", SWGS_N6_4627_bed$chr, sep = "")
+# intersect each sample against truth
+if (check.binary("bedtools")) {
+  
+    # sort data
+    truth_bed.sort <- bedr.sort.region(truth_bed)
+    SWGS_N6_4627_bed.sort <- bedr.sort.region(SWGS_N6_4627_bed)
+
+    # intersect / join
+    a.int1 <- bedr.join.region(SWGS_N6_4627_bed.sort, truth_bed.sort);
+
+    # print
+    cat(" REGION a intersect: \n"); print(a.int1); cat("\n");
+    }
 
 ```
 
