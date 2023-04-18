@@ -17,6 +17,7 @@ library(ggfortify)
 library("ggpubr")
 library(plotly) 
 library(tidyr)
+library(knitr)
 ```
 
 # Introduction
@@ -60,9 +61,49 @@ bed_intersect <- function(sample_bed, truth_bed){
   # sort the bed files
   truth_bed.sort <- bedr.sort.region(truth_bed, check.chr = F, verbose = F)
   sample_bed.sort <- bedr.sort.region(sample_bed, check.chr = F, verbose = F)
+  
+  # remove dup rows
+  truth_bed.sort <- truth_bed.sort[!duplicated(truth_bed.sort), ] 
+  sample_bed.sort <- sample_bed.sort[!duplicated(sample_bed.sort), ] 
   # intersect
-  pred.int.truth <- bedr.join.region(sample_bed.sort, truth_bed.sort, check.chr = F, verbose = F)
-  # print
+  pred.int.truth <- bedr(
+                      input = list(a = sample_bed.sort, b = truth_bed.sort),
+                      method = "intersect",
+                      params = "-loj -sorted",
+                      check.chr = F, verbose = F, engine = "bedtools", check.valid = T)
+  return(pred.int.truth)
+  
+}
+
+bed_intersect_no_overlap <- function(sample_bed, truth_bed){
+  # both dataframes must be chr,start,end
+  # truth is expected to have X or Y chr 
+  # pred is not expected to have X or Y 
+  
+  # finds the interaction of the sample and truth bed file
+  
+  # convert truth data to int, do not touch chr
+  truth_bed$start <- as.integer(truth_bed$start)
+  truth_bed$end <- as.integer(truth_bed$end)
+
+  # convert pred data to int
+  sample_bed$chr <- as.character(sample_bed$chr)
+  sample_bed$start <- as.integer(sample_bed$start)
+  sample_bed$end <- as.integer(sample_bed$end)
+  
+  # sort the bed files
+  truth_bed.sort <- bedr.sort.region(truth_bed, check.chr = F, verbose = F)
+  sample_bed.sort <- bedr.sort.region(sample_bed, check.chr = F, verbose = F)
+  
+  # remove dup rows
+  truth_bed.sort <- truth_bed.sort[!duplicated(truth_bed.sort), ] 
+  sample_bed.sort <- sample_bed.sort[!duplicated(sample_bed.sort), ] 
+  # intersect
+  pred.int.truth <- bedr(
+                      input = list(a = sample_bed.sort, b = truth_bed.sort),
+                      method = "intersect",
+                      params = "-loj -sorted -v",
+                      check.chr = F, verbose = F, engine = "bedtools", check.valid = T)
   return(pred.int.truth)
   
 }
@@ -99,7 +140,7 @@ What we find is that variation is not driven by tissue difference, this means th
 
 ```{r read_data}
 # read  data in
-mydir = "~/Documents/Projects/cancer/sWGS"
+mydir = "~/Documents/Projects/cancer/sWGS/"
 
 ### raw data
 total_files =  list.files(path = paste0(mydir), pattern= ("*.raw_calls_all_depths.tsv"))
@@ -191,22 +232,20 @@ ggplotly(logration_df_pca.plot)
 
 ### Normal Bin = 50kbp
 
-#### How many CN in our samples and truth dataset
 
 ```{r}
 sample="CUH191"
 # read in truth data
-Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep ="/"))
-head(Case_WGS)
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
 
 # output just the bed file
 # remove chr 
 Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
 Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
-truth_bed <- Case_WGS_location[,c("chr", "start", "end")]
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
 
 # save the three columns
-write.table(truth_bed, 
+write.table(Case_WGS_location_bed, 
             file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
             sep = "\t", col.names = F, row.names = F, quote = F)
 ```
@@ -225,6 +264,7 @@ Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
 colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
 rownames(Case_truthvspredicted_df) <- C5_samples
 # make a bed file output to do intersect with these 4 samples
+print(paste("Truth WGS", sample, "has CN segements = ", nrow(Case_WGS)))
 for(i in 1:length(C5_samples)) { 
   N = C5_samples[i]
   # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
@@ -235,23 +275,51 @@ for(i in 1:length(C5_samples)) {
             col.names = F, row.names = F, quote = F)
   
   # compare to the truth dataset
+  # contains all intersect with TP and FP
+  intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
   # row = sample, column = TP
-  Case_truthvspredicted_df[i,1] <- nrow(bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = truth_bed))
+  # if true, all will be coordinates
+  Case_truthvspredicted_df[i,1] <- nrow(intersect_loj[which(intersect_loj[,4] > 0),])
   # row = sample, column = FP
-  Case_truthvspredicted_df[i,2] 
+  # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+  Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
   # row = sample, column = TN
   Case_truthvspredicted_df[i,3] 
 }
+
+kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
 
 ```
 
 
 ```{r}
+bed_func <- function(sample_bed, truth_bed){
+  # clean data
+  truth_bed$start <- as.integer(truth_bed$start)
+  truth_bed$end <- as.integer(truth_bed$end)
+  sample_bed$chr <- as.character(sample_bed$chr)
+  sample_bed$start <- as.integer(sample_bed$start)
+  sample_bed$end <- as.integer(sample_bed$end)
+  truth_bed.sort <- bedr.sort.region(truth_bed, check.chr = F, verbose = F)
+  sample_bed.sort <- bedr.sort.region(sample_bed, check.chr = F, verbose = F)
+  truth_bed.sort <- truth_bed.sort[!duplicated(truth_bed.sort), ] 
+  sample_bed.sort <- sample_bed.sort[!duplicated(sample_bed.sort), ] 
+  
+  # function
+  pred.int.truth <- bedr.join.region(
+                      sample_bed.sort, truth_bed.sort,
+                      check.chr = F, verbose = F)
+  return(pred.int.truth)
+  
+}
 
-
+nrow(bed_func(sample_bed = SWGS_N6_4627_bed, truth_bed = Case_WGS_location_bed))
+```
+```{r biomart_genes}
+# find the genes in the TP regions
+tmp <- bed_intersect(sample_bed = SWGS_N6_4627_bed, truth_bed = Case_WGS_location_bed)
 
 ```
-
 #### What are the common predicted in all 4, 3 and 2 samples
 
 #### Are the repeats consistent in their raw copy number
