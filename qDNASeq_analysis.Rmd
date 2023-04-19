@@ -75,7 +75,7 @@ bed_intersect <- function(sample_bed, truth_bed){
   
 }
 
-bed_intersect_no_overlap <- function(sample_bed, truth_bed){
+bed_missed_in_sample <- function(sample_bed, truth_bed){
   # both dataframes must be chr,start,end
   # truth is expected to have X or Y chr 
   # pred is not expected to have X or Y 
@@ -100,9 +100,9 @@ bed_intersect_no_overlap <- function(sample_bed, truth_bed){
   sample_bed.sort <- sample_bed.sort[!duplicated(sample_bed.sort), ] 
   # intersect
   pred.int.truth <- bedr(
-                      input = list(a = sample_bed.sort, b = truth_bed.sort),
+                      input = list(a =truth_bed.sort , b = sample_bed.sort),
                       method = "intersect",
-                      params = "-loj -sorted -v",
+                      params = "-loj -sorted",
                       check.chr = F, verbose = F, engine = "bedtools", check.valid = T)
   return(pred.int.truth)
   
@@ -228,7 +228,151 @@ ggplotly(logration_df_pca.plot)
 
 # Case analysis
 
+## Case 2 
+
+
+
+## Case 4 
+
+### Normal Bin = 50kbp
+
+
+```{r}
+sample="CUH189"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+* Predicted sWGS CN overlapping with truth WGS CN = TP
+* Predicted sWGS NOT present with truth WGS CN = TN
+* Truth WGS CN NOT present in predicted sWGS CN = FP
+
+```{r}
+# get the summaried data for samples associated to this case
+C_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+
+Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
+colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
+rownames(Case_truthvspredicted_df) <- C_samples
+# make a bed file output to do intersect with these 4 samples
+print(paste("Truth WGS", sample, "has CN segements = ", nrow(Case_WGS)))
+for(i in 1:length(C_samples)) { 
+  N = C_samples[i]
+  # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+  assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+  print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+  # save the dataframe
+  write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+            col.names = F, row.names = F, quote = F)
+  
+  # compare to the truth dataset
+  # contains all intersect with TP and FP
+  intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+  # row = sample, column = TP
+  # if true, all will be coordinates
+  Case_truthvspredicted_df[i,1] <- nrow(intersect_loj[which(intersect_loj[,4] > 0),])
+  # row = sample, column = FP
+  # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+  Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+  # row = sample, column = TN
+  tmp <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+  Case_truthvspredicted_df[i,3] <- nrow(tmp[which(tmp[,4] == "."),])
+}
+
+kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+
+```
+
 ## Case 5 
+
+### Normal Bin = 50kbp
+
+
+```{r}
+sample="CUH190"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+* Predicted sWGS CN overlapping with truth WGS CN = TP
+* Predicted sWGS NOT present with truth WGS CN = TN
+* Truth WGS CN NOT present in predicted sWGS CN = FP
+
+```{r}
+# get the summaried data for samples associated to this case
+C_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+
+Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
+colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
+rownames(Case_truthvspredicted_df) <- C_samples
+# make a bed file output to do intersect with these 4 samples
+print(paste("Truth WGS", sample, "has CN segements = ", nrow(Case_WGS)))
+for(i in 1:length(C_samples)) { 
+  N = C_samples[i]
+  # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+  assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+  print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+  # save the dataframe
+  write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+            col.names = F, row.names = F, quote = F)
+  
+  # compare to the truth dataset
+  # contains all intersect with TP and FP
+  intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+  # row = sample, column = TP
+  # if true, all will be coordinates
+  Case_truthvspredicted_df[i,1] <- nrow(intersect_loj[which(intersect_loj[,4] > 0),])
+  # row = sample, column = FP
+  # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+  Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+  # row = sample, column = TN
+  tmp <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+  Case_truthvspredicted_df[i,3] <- nrow(tmp[which(tmp[,4] == "."),])
+}
+
+kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+
+```
+
+
+
+#### What are the common predicted in all 4, 3 and 2 samples
+#### Are the repeats consistent in their raw copy number
+#### Are the repeats consistent in their summarised segmented copy number
+#### Compare the log2 ratio of bins
+
+
+
+
+
+
+## Case 6 
 
 ### Normal Bin = 50kbp
 
@@ -258,15 +402,15 @@ write.table(Case_WGS_location_bed,
 
 ```{r}
 # get the summaried data for samples associated to this case
-C5_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+C_samples<- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
 
 Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
 colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
-rownames(Case_truthvspredicted_df) <- C5_samples
+rownames(Case_truthvspredicted_df) <- C_samples
 # make a bed file output to do intersect with these 4 samples
 print(paste("Truth WGS", sample, "has CN segements = ", nrow(Case_WGS)))
-for(i in 1:length(C5_samples)) { 
-  N = C5_samples[i]
+for(i in 1:length(C_samples)) { 
+  N = C_samples[i]
   # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
   assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
   print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
@@ -284,66 +428,13 @@ for(i in 1:length(C5_samples)) {
   # if FP, they will exist in 4,5,6 column (truth dataset) as -1
   Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
   # row = sample, column = TN
-  Case_truthvspredicted_df[i,3] 
+  tmp <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+  Case_truthvspredicted_df[i,3] <- nrow(tmp[which(tmp[,4] == "."),])
 }
 
 kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
 
 ```
-
-
-```{r}
-bed_func <- function(sample_bed, truth_bed){
-  # clean data
-  truth_bed$start <- as.integer(truth_bed$start)
-  truth_bed$end <- as.integer(truth_bed$end)
-  sample_bed$chr <- as.character(sample_bed$chr)
-  sample_bed$start <- as.integer(sample_bed$start)
-  sample_bed$end <- as.integer(sample_bed$end)
-  truth_bed.sort <- bedr.sort.region(truth_bed, check.chr = F, verbose = F)
-  sample_bed.sort <- bedr.sort.region(sample_bed, check.chr = F, verbose = F)
-  truth_bed.sort <- truth_bed.sort[!duplicated(truth_bed.sort), ] 
-  sample_bed.sort <- sample_bed.sort[!duplicated(sample_bed.sort), ] 
-  
-  # function
-  pred.int.truth <- bedr.join.region(
-                      sample_bed.sort, truth_bed.sort,
-                      check.chr = F, verbose = F)
-  return(pred.int.truth)
-  
-}
-
-nrow(bed_func(sample_bed = SWGS_N6_4627_bed, truth_bed = Case_WGS_location_bed))
-```
-```{r biomart_genes}
-# find the genes in the TP regions
-tmp <- bed_intersect(sample_bed = SWGS_N6_4627_bed, truth_bed = Case_WGS_location_bed)
-
-```
-#### What are the common predicted in all 4, 3 and 2 samples
-
-#### Are the repeats consistent in their raw copy number
-
-#### Are the repeats consistent in their summarised segmented copy number
-
-
-
-#### Compare the log2 ratio of bins
-
-## Case 2 
-
-
-
-## Case 4 
-
-
-
-## Case 5 
-
-
-## Case 6 
-
-
 
 # Downsampling to 5X
 
