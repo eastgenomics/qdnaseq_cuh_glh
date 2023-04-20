@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(bedr)
 library(biomaRt)
 library(dplyr)
+library(DT)
 library(ggplot2)
 library(ggfortify)
 library("ggpubr")
@@ -208,12 +209,12 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes
               sep = "\t", col.names = T, row.names = T, quote = F)
   
   Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
-                                   "Log2.FC", "SWGS_N4_3134 _ FF", "SWGS_N20_3134R _ FF", "SWGS_N12_3016 _ FFPE",  "SWGS_N28_3016R _ FFPE")]
+                                   "Log2.FC", C_fullsamplenames)]
   write.table(Case_WGS_filtered, 
               file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
               sep = "\t", col.names =T, row.names = F, quote = F)
   
-  head(Case_WGS_filtered)
+  datatable(Case_WGS_filtered)
   
 }
 ```
@@ -267,7 +268,7 @@ for(i in 1:length(total_files)) { #up to 4 samples
 }
 
 metadata <- read.delim(paste(mydir, "metadata.txt", sep= "/"), sep = "\t")
-metadata$fullsamplename <- paste(metadata$samplename,"_",metadata$Tissue.Type)
+metadata$fullsamplename <- paste(metadata$samplename,"_",metadata$Tissue.Type, sep="")
 
 # read in biomart info 
 mart <- useMart("ensembl")
@@ -328,13 +329,13 @@ ggplotly(logration_df_pca.plot)
 # Case analysis
 
 
-## Case 4 
+## Case 5 
 
 ### Normal Bin = 50kbp
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
 # read in truth data
@@ -395,10 +396,10 @@ There will a tsv file that contains the truth bed and whether each segment in th
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_5bin"
+subfolder = "case5_down_5bin"
 
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
@@ -440,10 +441,10 @@ There will a tsv file that contains the truth bed and whether each segment in th
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_15bin"
+subfolder = "case5_down_15bin"
 
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
@@ -485,10 +486,10 @@ There will a tsv file that contains the truth bed and whether each segment in th
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_50bin"
+subfolder = "case5_down_50bin"
 
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
@@ -531,10 +532,10 @@ There will a tsv file that contains the truth bed and whether each segment in th
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_100bin"
+subfolder = "case5_down_100bin"
 
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
@@ -576,10 +577,10 @@ There will a tsv file that contains the truth bed and whether each segment in th
 
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 # read  data in
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_500bin"
+subfolder = "case5_down_500bin"
 
 # read in truth data
 Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
@@ -607,53 +608,182 @@ for(i in 1:length(total_files)) { #up to 4 samples
 sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
 ```
 
+
+### Downsampled 500kbp
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = "case5_merged_50bin"
+
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# read in samples
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+C_samples <- c()
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".downsampled.summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  C_samples <- c(C_samples, file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
+rownames(Case_truthvspredicted_df) <- C_samples
+Case_WGS[, C_samples] <- NA
+for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = TN
+    TN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(TN[which(TN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+       if (dim(all.genes)[1] == 0) {
+        next
+       }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
+    }
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
+}
+  
+kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+write.table(Case_truthvspredicted_df, 
+            file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""),
+            sep = "\t", col.names = T, row.names = T, quote = F)
+
+Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                 "Log2.FC", C_fullsamplenames)]
+write.table(Case_WGS_filtered, 
+            file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+            sep = "\t", col.names =T, row.names = F, quote = F)
+
+datatable(Case_WGS_filtered)
+```
+
+
 #### FP, TP, FN rates across different bins
 
 Different bins results in different TP, FP and FN rates. We can summarise this into one plot.
 
 ```{r}
-sample="CUH189"
+sample="CUH190"
 mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case4_down_500bin"
-Case4_down_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(Case4_down_500bin) <- paste(rownames(Case4_down_500bin), subfolder, sep = "_")
+subfolder = "case5_down_500bin"
+case5_down_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+rownames(case5_down_500bin) <- paste(rownames(case5_down_500bin), subfolder, sep = "_")
 
-subfolder = "case4_down_100bin"
-Case4_down_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(Case4_down_100bin) <- paste(rownames(Case4_down_100bin), subfolder, sep = "_")
+subfolder = "case5_down_100bin"
+case5_down_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+rownames(case5_down_100bin) <- paste(rownames(case5_down_100bin), subfolder, sep = "_")
 
-subfolder = "case4_down_50bin"
-Case4_down_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(Case4_down_50bin) <- paste(rownames(Case4_down_50bin), subfolder, sep = "_")
+subfolder = "case5_down_50bin"
+case5_down_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+rownames(case5_down_50bin) <- paste(rownames(case5_down_50bin), subfolder, sep = "_")
 
-subfolder = "case4_down_15bin"
-Case4_down_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(Case4_down_15bin) <- paste(rownames(Case4_down_15bin), subfolder, sep = "_")
+subfolder = "case5_down_15bin"
+case5_down_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+rownames(case5_down_15bin) <- paste(rownames(case5_down_15bin), subfolder, sep = "_")
 
-subfolder = "case4_down_5bin"
-Case4_down_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(Case4_down_5bin) <- paste(rownames(Case4_down_5bin), subfolder, sep = "_")
+subfolder = "case5_down_5bin"
+case5_down_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+rownames(case5_down_5bin) <- paste(rownames(case5_down_5bin), subfolder, sep = "_")
 
-Case4 <- rbind(Case4_down_5bin, Case4_down_15bin, Case4_down_50bin, Case4_down_100bin, Case4_down_500bin)
-Case4$info <- rownames(Case4)
-Case4 <- separate(data = Case4, col = info, sep = "_", into = c("SWGS", "sample", "sample_tissue",
+case5 <- rbind(case5_down_5bin, case5_down_15bin, case5_down_50bin, case5_down_100bin, case5_down_500bin)
+case5$info <- rownames(case5)
+case5 <- separate(data = case5, col = info, sep = "_", into = c("SWGS", "sample", "sample_tissue",
                                                      "tissue_type", "case", "downsampled", "bin"))
-Case4$tissue_type <- gsub('\\s+', '', Case4$tissue_type)
-Case4$bin <- as.factor(gsub('bin*.', '', Case4$bin))
-Case4$bin <- factor(gsub('bin*.', '', Case4$bin), levels=c(5,10,15,50,100,500))
+case5$tissue_type <- gsub('\\s+', '', case5$tissue_type)
+case5$bin <- as.factor(gsub('bin*.', '', case5$bin))
+case5$bin <- factor(gsub('bin*.', '', case5$bin), levels=c(5,10,15,50,100,500))
 
-Case4 <- separate(data = Case4, col = sample_tissue, sep = 4, into = c("ID", "repeats"))
+case5 <- separate(data = case5, col = sample_tissue, sep = 4, into = c("ID", "repeats"))
 #replace null with second
-Case4$repeats <- gsub(' ', 'O', Case4$repeats)
+case5$repeats <- gsub(' ', 'O', case5$repeats)
+
+# melt the data to merge everything
+case5_melt <- melt(case5[,c("TP", "FP", "TN", "repeats", "tissue_type", "bin")], id.vars=c("tissue_type", "bin", "repeats"))
+
+case5_FF <- case5[which(case5$tissue_type %in% "FF"),]
+case5_FFPE <- case5[which(case5$tissue_type %in% "FFPE"),]
 
 
-Case4_FF <- Case4[which(Case4$tissue_type %in% "FF"),]
-Case4_FFPE <- Case4[which(Case4$tissue_type %in% "FFPE"),]
-
-
-ggplot(Case4_FF, aes(x = bin, y = TP, group = Case4_FF$tissu)) +
-  geom_line(aes(color=Case4_FF$repeats)) +
-  geom_point(aes(shape=Case4_FF$repeats))
+# ggplot(case5_melt, aes(x = bin, y = value, fill = variable)) +
+#   geom_col(stat="identity", width=.5, position = "dodge") +
+#   geom_line(stat="identity", aes(group = bin, fill = variable))
+# 
+# ggplot(case5_FF, aes(x = bin, y = TP, group = case5_FF$repeats)) +
+#   geom_line()
+# 
+# ggplot(case5_FF,aes(x = bin, y = TP, fill = case5_FF$repeats)) +
+#   geom_col(stat="identity", position = "dodge") +
+#   geom_line(stat="identity")
 ```
 
 
