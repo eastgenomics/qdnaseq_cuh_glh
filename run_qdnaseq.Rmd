@@ -10,6 +10,15 @@ output: html_document
 ### Step 1: Load libraries
 
 ```{r}
+install.packages("tidyverse")
+install.packages("devtools")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("QDNAseq")
+
+devtools::install_github(repo = "asntech/QDNAseq.hg38")
+
 library(tidyverse)
 library(QDNAseq)
 library(QDNAseq.hg38)
@@ -20,7 +29,7 @@ library(QDNAseq.hg38)
 Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
 
 ```{r}
-bins <- getBinAnnotations(binSize=50, genome="hg38")
+bins <- getBinAnnotations(binSize=500, genome="hg38")
 ```
 
 ### Step 3: Read in BAM(s)
@@ -32,9 +41,24 @@ readCounts <- binReadCounts(bins, path = "<BAM_PATH>")
 ```
 
 ### Step 4: Run CNV calling algo
+```{r}
+#generate segmented read count plot
+copy_Numbers_segmented <- readCounts %>%
+  applyFilters(residual=TRUE, blacklist=100) %>%
+  # Estimate and correct read counts as a function of GC content and
+  # mappability (removes further noise from e.g. FFPE)
+  estimateCorrection() %>%
+  correctBins() %>%
+
+  # Normalise and smooth corrected read counts
+  smoothOutlierBins()  %>%
+  normalizeBins() %>%
+  segmentBins(transformFun="sqrt")
+```
+
 
 ```{r}
-# call copy numbers
+# Generate called read count plots
 copyNumbersCalled <- readCounts %>%
 
     # Filter reads based on a) residuals after fitting to a model, 
@@ -61,7 +85,8 @@ copyNumbersCalled <- readCounts %>%
 ### Step 5: Save plot output
 
 ```{r}
-png(filename = "output_plots/%s")
+png(width=1300, height=800)
+plot(copy_Numbers_segmented)
 plot(copyNumbersCalled)
 dev.off()
 ```
@@ -71,7 +96,5 @@ dev.off()
 ```{r}
 ## Summarised calls - one file per sample
 QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
-
 ## Raw calls - one file that contains *all* samples together
-QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "shallow_wgs_validation.raw_calls_all_depths.tsv")
-```
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "all_calls_binsize_50_merged.raw_calls_all_depths.tsv")
