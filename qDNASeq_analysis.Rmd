@@ -27,23 +27,6 @@ library(reshape2)
 
 This report investigates the output from qDNASeq and compare the output to WGS of the same sample from GEL. The study design is there are 8 patiensts, each with 2 FF sample and 2 FFPE samples, giving us a total of 32 samples. The samples have been processed on the NovaSeq machine using shallow WGS technique, therefore we expect very low coverages. The first part will look at general QC of the data, the second part will look at each sample in detail at different coverages (normal vs downsampled) and different bins, with comparison to WGS and concordance between tissue types.
 
-
-
-
-- Also add extra column with info on FF and FFPE
-- Compare normal and downsampled at each bin
-  - Plot: x=bin size, y=TP,FP,FN (have normal and downsampled in one plot (shading & color))
-- Similiarity between FF and FFPE
-- Case 5 PCA plot
-
-Section:
-Case 5:
-  - Per bin
-    - Summary of truth with Y/N ff ffpe
-    - Summary FP,FN and TP table
-    - Performance of FFPE and FF 
-      - How TP for FFPE and FF from the truth table
-  - Effect of bin size and downsamples with plot (2 plot for tissue type)
   
 
 ``` {r functions}
@@ -140,7 +123,7 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes
   C_samples <- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
   C_fullsamplenames <-  unique(metadata[which(metadata$CUH_number %in% sample), "fullsamplename"])
   Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow =4,ncol=3))
-  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
   rownames(Case_truthvspredicted_df) <- C_fullsamplenames
   Case_WGS[, C_fullsamplenames] <- NA
   # make a bed file output to do intersect with these 4 samples
@@ -171,9 +154,9 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes
     # row = sample, column = FP
     # if FP, they will exist in 4,5,6 column (truth dataset) as -1
     Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
-    # row = sample, column = TN
-    TN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
-    Case_truthvspredicted_df[i,3] <- nrow(TN[which(TN[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
     
     ## Output all the regions + gene annotation
     # select sample
@@ -205,7 +188,7 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes
   
   kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
   write.table(Case_truthvspredicted_df, 
-              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""),
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
               sep = "\t", col.names = T, row.names = T, quote = F)
   
   Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
@@ -271,10 +254,10 @@ metadata <- read.delim(paste(mydir, "metadata.txt", sep= "/"), sep = "\t")
 metadata$fullsamplename <- paste(metadata$samplename,"_",metadata$Tissue.Type, sep="")
 
 # read in biomart info 
-mart <- useMart("ensembl")
-mart <- useDataset("hsapiens_gene_ensembl", mart)
-attributes <- c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "start_position", "end_position")
-filters <- c("chromosome_name","start","end")
+#mart <- useMart("ensembl")
+#mart <- useDataset("hsapiens_gene_ensembl", mart)
+#attributes <- c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "start_position", "end_position")
+#filters <- c("chromosome_name","start","end")
 
 ```
 
@@ -329,7 +312,129 @@ ggplotly(logration_df_pca.plot)
 # Case analysis
 
 
-## Case 5 
+## Case 5
+
+### Normal Bin = 5kbp
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+```{r}
+# read in samples
+subfolder = "case5_norm_5bin"
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  file_name <- gsub("_S.*", "", file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
+
+### Normal Bin = 15kbp
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+```{r}
+# read in samples
+subfolder = "case5_norm_15bin"
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  file_name <- gsub("_S.*", "", file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
 
 ### Normal Bin = 50kbp
 
@@ -379,11 +484,41 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-# get the TP, FN, FP & gene annotations
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
 
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
-### Downsampled 5kbp
+
+### Normal Bin = 100kbp
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
 
 #### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
 
@@ -394,23 +529,9 @@ There will a tsv file that contains the truth bed and whether each segment in th
 * FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
 * TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
 
-
 ```{r}
-sample="CUH190"
-# read  data in
-mydir = "~/Documents/Projects/cancer/sWGS/"
-subfolder = "case5_down_5bin"
-
-# read in truth data
-Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
-
-# output just the bed file
-# remove chr 
-Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
-Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
-Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
-
 # read in samples
+subfolder = "case5_norm_100bin"
 total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
 sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
 for(i in 1:length(total_files)) { #up to 4 samples
@@ -424,8 +545,80 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
+
+### Normal Bin = 500kbp
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# save the three columns
+write.table(Case_WGS_location_bed, 
+            file = paste(mydir, sample ," _targeted_CN_locs.tsv", sep =""),
+            sep = "\t", col.names = F, row.names = F, quote = F)
+```
+
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+```{r}
+# read in samples
+subfolder = "case5_norm_500bin"
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  file_name <- gsub("_S.*", "", file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
+
 
 
 ### Downsampled 15kbp
@@ -435,7 +628,7 @@ sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, m
 There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
 
 * TP = Predicted CN in truth dataset
-* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FN = Not predictd but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
 * FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
 * TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
 
@@ -469,7 +662,17 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
 
 
@@ -514,7 +717,17 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
 
 
@@ -560,7 +773,17 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
 
 
@@ -605,9 +828,272 @@ for(i in 1:length(total_files)) { #up to 4 samples
   file_name <- NULL
   tsv_file <- NULL
 }
-sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  # get the TP, FN, FP & gene annotations
+  sWGS_vs_WGS(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart)
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
 ```
 
+### Merged FF and FFPE at 5kbp
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = "case5_merged_5bin"
+
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# read in samples
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+C_samples <- c()
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".downsampled.summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  C_samples <- c(C_samples, file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
+  rownames(Case_truthvspredicted_df) <- C_samples
+  Case_WGS[, C_samples] <- NA
+  for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+      if (dim(all.genes)[1] == 0) {
+        next
+      }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
+    }
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
+  }
+  
+  kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+  write.table(Case_truthvspredicted_df, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
+              sep = "\t", col.names = T, row.names = T, quote = F)
+  
+  Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                   "Log2.FC", C_samples)]
+  write.table(Case_WGS_filtered, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+              sep = "\t", col.names =T, row.names = F, quote = F)
+  
+  datatable(Case_WGS_filtered)
+  
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
+
+### Merged FF and FFPE at 15kbp
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = "case5_merged_15bin"
+
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# read in samples
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+C_samples <- c()
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".downsampled.summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  C_samples <- c(C_samples, file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
+  rownames(Case_truthvspredicted_df) <- C_samples
+  Case_WGS[, C_samples] <- NA
+  for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+      if (dim(all.genes)[1] == 0) {
+        next
+      }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
+    }
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
+  }
+  
+  kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+  write.table(Case_truthvspredicted_df, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
+              sep = "\t", col.names = T, row.names = T, quote = F)
+  
+  Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                   "Log2.FC", C_samples)]
+  write.table(Case_WGS_filtered, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+              sep = "\t", col.names =T, row.names = F, quote = F)
+  
+  datatable(Case_WGS_filtered)
+  
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
 
 ### Merged FF and FFPE at 50kbp
 
@@ -652,90 +1138,361 @@ for(i in 1:length(total_files)) { #up to 4 samples
   tsv_file <- NULL
 }
 
-Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
-colnames(Case_truthvspredicted_df) <- c("TP", "FP", "TN")
-rownames(Case_truthvspredicted_df) <- C_samples
-Case_WGS[, C_samples] <- NA
-for(i in 1:length(C_samples)) { 
-  N = C_samples[i]
-  # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
-  assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
-  print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
-  # save the dataframe
-  write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
-              col.names = F, row.names = F, quote = F)
-  
-  # compare to the truth dataset
-  # contains all intersect with TP and FP
-  intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
-  # row = sample, column = TP
-  # if true, all will be coordinates
-  TP <- intersect_loj[which(intersect_loj[,4] > 0),]
-  Case_truthvspredicted_df[i,1] <- nrow(TP)
-  # if true, write yes as to whether this yes is for the FF or the FFPE tissue
-  # first get the truth location as chr:start-end
-  TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
-  TP$yes <- rep("yes", nrow(TP))
-  # if the Case location and the TP truth location match, then say past yes in the sample tissue column
-  Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
-  # row = sample, column = FP
-  # if FP, they will exist in 4,5,6 column (truth dataset) as -1
-  Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
-  # row = sample, column = TN
-  TN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
-  Case_truthvspredicted_df[i,3] <- nrow(TN[which(TN[,4] == "."),])
-  
-  ## Output all the regions + gene annotation
-  # select sample
-  sample_sum_file <- get(N)
-  sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
-  all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
-  colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
-  for(i in 1:nrow(sample_sum_file)) {
-    # tell all the locations we want
-    values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
-    # get all genes in the chr and start/end locations
-    all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
-    if (dim(all.genes)[1] == 0) {
-      next
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
+  rownames(Case_truthvspredicted_df) <- C_samples
+  Case_WGS[, C_samples] <- NA
+  for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+      if (dim(all.genes)[1] == 0) {
+        next
+      }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
     }
-    # the location will be what CN region contins these genes
-    all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
-    # some regions are not genes but novel transcripts by ensembl, so can remove these
-    all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
-    all.genes.df <- rbind(all.genes.df, all.genes)
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
   }
-  # 
-  sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
   
-  write.table(sample_sum_file,
-              file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
-              sep = "\t", col.names = T, row.names = F, quote = F)
+  kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+  write.table(Case_truthvspredicted_df, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
+              sep = "\t", col.names = T, row.names = T, quote = F)
+  
+  Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                   "Log2.FC", C_samples)]
+  write.table(Case_WGS_filtered, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+              sep = "\t", col.names =T, row.names = F, quote = F)
+  
+  datatable(Case_WGS_filtered)
+  
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
 }
-
-kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
-write.table(Case_truthvspredicted_df, 
-            file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""),
-            sep = "\t", col.names = T, row.names = T, quote = F)
-
-Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
-                                 "Log2.FC", C_samples)]
-write.table(Case_WGS_filtered, 
-            file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
-            sep = "\t", col.names =T, row.names = F, quote = F)
-
-datatable(Case_WGS_filtered)
 ```
 
+### Merged FF and FFPE at 100kbp
 
-#### FP, TP, FN rates across different bins and depths plots
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = "case5_merged_100bin"
+
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# read in samples
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+C_samples <- c()
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".downsampled.summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  C_samples <- c(C_samples, file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
+  rownames(Case_truthvspredicted_df) <- C_samples
+  Case_WGS[, C_samples] <- NA
+  for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+      if (dim(all.genes)[1] == 0) {
+        next
+      }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
+    }
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
+  }
+  
+  kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+  write.table(Case_truthvspredicted_df, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
+              sep = "\t", col.names = T, row.names = T, quote = F)
+  
+  Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                   "Log2.FC", C_samples)]
+  write.table(Case_WGS_filtered, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+              sep = "\t", col.names =T, row.names = F, quote = F)
+  
+  datatable(Case_WGS_filtered)
+  
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
+
+### Merged FF and FFPE at 500kbp
+
+#### How many TP, TN and FP when comparing our predicted CNs to the truth dataset
+
+There will a tsv file that contains the truth bed and whether each segment in the WGS exists in the sWGS, this will be denotated with a "yes" in the column. If blank, it means that it is not called in the sWGS. Also, a table will be outputted detailed the TP, FP and TN.
+
+* TP = Predicted CN in truth dataset
+* FN = Not predicted but in truth set (e.g chrX and chrY as qDNASeq does autosomal chromosomes)
+* FP = Predicted but not in truth set (keep in mind that it can be germline as we dont have control)
+* TN = Not predicted in CN and not in truth dataset (can't be demonstrated)
+
+
+```{r}
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = "case5_merged_500bin"
+
+# read in truth data
+Case_WGS <- read.csv(paste(mydir, paste(sample, "CNVs.csv"), sep =""))
+
+# output just the bed file
+# remove chr 
+Case_WGS$Position..hg38.<-gsub("chr","",as.character(Case_WGS$Position..hg38.))
+Case_WGS_location <- separate(data = Case_WGS, col = Position..hg38., into = c("chr", "start", "end"))
+Case_WGS_location_bed <- Case_WGS_location[,c("chr", "start", "end")]
+
+# read in samples
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+sum_df  <- as.data.frame(matrix(ncol = 6, nrow = 0))
+C_samples <- c()
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".downsampled.summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  sum_df <- rbind(sum_df, tsv_file)
+  file_name <- file_name[[1]] #get the dataframe from the list
+  C_samples <- c(C_samples, file_name)
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+# If the analysis has already been done previously, we can just load in the data and present it in the html
+analysis_done = "yes"
+if(analysis_done != "yes"){
+  Case_truthvspredicted_df <- as.data.frame(matrix(NA, nrow=2,ncol=3))
+  colnames(Case_truthvspredicted_df) <- c("TP", "FP", "FN")
+  rownames(Case_truthvspredicted_df) <- C_samples
+  Case_WGS[, C_samples] <- NA
+  for(i in 1:length(C_samples)) { 
+    N = C_samples[i]
+    # assign the new samplename with  _bed to the new datafraame that contains loc,start,end
+    assign(paste(N, "_bed", sep=""), make_bed_from_sum_df(get(N)))
+    print(paste(N, " has CN segements = ", nrow( make_bed_from_sum_df(get(N))), sep = ""))
+    # save the dataframe
+    write.table(get(paste(N, "_bed", sep="")), file = paste(mydir, "/", subfolder, "/", sample, "_" , N, "_predicted_CN_locs.tsv", sep=""), sep = "\t",
+                col.names = F, row.names = F, quote = F)
+    
+    # compare to the truth dataset
+    # contains all intersect with TP and FP
+    intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    # row = sample, column = TP
+    # if true, all will be coordinates
+    TP <- intersect_loj[which(intersect_loj[,4] > 0),]
+    Case_truthvspredicted_df[i,1] <- nrow(TP)
+    # if true, write yes as to whether this yes is for the FF or the FFPE tissue
+    # first get the truth location as chr:start-end
+    TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
+    TP$yes <- rep("yes", nrow(TP))
+    # if the Case location and the TP truth location match, then say past yes in the sample tissue column
+    Case_WGS[,C_samples] <- TP$yes[match(Case_WGS$Position..hg38.,TP$truth_location)]
+    # row = sample, column = FP
+    # if FP, they will exist in 4,5,6 column (truth dataset) as -1
+    Case_truthvspredicted_df[i,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
+    # row = sample, column = FN
+    FN <- bed_missed_in_sample(sample_bed =  get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
+    Case_truthvspredicted_df[i,3] <- nrow(FN[which(FN[,4] == "."),])
+    
+    ## Output all the regions + gene annotation
+    # select sample
+    sample_sum_file <- get(N)
+    sample_sum_file$location <- paste(sample_sum_file$CHROMOSOME, ":",sample_sum_file$START, "-",sample_sum_file$STOP, sep = "")
+    all.genes.df <- as.data.frame(matrix(NA, nrow = 0, ncol = 6))
+    colnames(all.genes.df) <- c( "ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","location")
+    for(i in 1:nrow(sample_sum_file)) {
+      # tell all the locations we want
+      values <- list(chromosome=sample_sum_file[i,"CHROMOSOME"],start=sample_sum_file[i,"START"],end=sample_sum_file[i,"STOP"])
+      # get all genes in the chr and start/end locations
+      all.genes <- getBM(attributes=attributes, filters=filters, values=values, mart=mart)
+      if (dim(all.genes)[1] == 0) {
+        next
+      }
+      # the location will be what CN region contins these genes
+      all.genes$location <- rep(sample_sum_file[i,"location"], nrow(all.genes))
+      # some regions are not genes but novel transcripts by ensembl, so can remove these
+      all.genes <- all.genes[which(all.genes$hgnc_symbol != ""),]
+      all.genes.df <- rbind(all.genes.df, all.genes)
+    }
+    # 
+    sample_sum_file <- left_join(sample_sum_file, all.genes.df, by="location")
+    
+    write.table(sample_sum_file,
+                file = paste(mydir, subfolder, "/", sample, "_" , N, "_predicted_CN_gene_ann.tsv", sep=""),
+                sep = "\t", col.names = T, row.names = F, quote = F)
+  }
+  
+  kable(Case_truthvspredicted_df, caption = paste(sample, "vs truth WGS dataset"))
+  write.table(Case_truthvspredicted_df, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""),
+              sep = "\t", col.names = T, row.names = T, quote = F)
+  
+  Case_WGS_filtered <- Case_WGS[,c("Gene.Transcript", "Copy.Number..MCC.", "Cytogenetic.band", "Position..hg38.",
+                                   "Log2.FC", C_samples)]
+  write.table(Case_WGS_filtered, 
+              file = paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep =""),
+              sep = "\t", col.names =T, row.names = F, quote = F)
+  
+  datatable(Case_WGS_filtered)
+  
+} else {
+  # if analysis_done is yes then just load in data and present table
+  df <- read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_WGS_FF_vs_FFPE.tsv", sep = ""), sep = "\t")
+  datatable(df)
+}
+```
+### FP, TP, FN rates across different bins and depths plots
 
 Different bins results in different TP, FP and FN rates. We can summarise this into one plot.
 
 ```{r}
 # 3 data types:
 # Original 50kbp bin
+#### 5kbp bin
+#### 15kbp bin
+#### 50kbp bin
+#### 100kbp bin
+#### 5000kbp bin
 # Merged 50kbp bin
+#### 5kbp bin
+#### 15kbp bin
+#### 50kbp bin
+#### 100kbp bin
+#### 5000kbp bin
 # Downsampled:
 #### 5kbp bin
 #### 15kbp bin
@@ -750,53 +1507,79 @@ sample="CUH190"
 case = "case5"
 mydir = "~/Documents/Projects/cancer/sWGS/"
 # Original 50kbp:
-subfolder = ""
-case_norm = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(case_norm) <- paste(rownames(case_norm), subfolder, sep = "_")
+subfolder = "case5_norm_5bin"
+case_norm_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_norm_5bin) <- paste(rownames(case_norm_5bin), subfolder, sep = "_")
+subfolder = "case5_norm_15bin"
+case_norm_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_norm_15bin) <- paste(rownames(case_norm_15bin), subfolder, sep = "_")
+subfolder = "case5_norm_50bin"
+case_norm_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_norm_50bin) <- paste(rownames(case_norm_50bin), subfolder, sep = "_")
+subfolder = "case5_norm_100bin"
+case_norm_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_norm_100bin) <- paste(rownames(case_norm_100bin), subfolder, sep = "_")
+subfolder = "case5_norm_500bin"
+case_norm_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_norm_500bin) <- paste(rownames(case_norm_500bin), subfolder, sep = "_")
 
 # Merged 50kbp:
+subfolder = paste(case, "_merged_5bin", sep = "")
+case_merged_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_merged_5bin) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged_5bin)), subfolder, sep = "_")
+subfolder = paste(case, "_merged_15bin", sep = "")
+case_merged_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_merged_15bin) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged_15bin)), subfolder, sep = "_")
 subfolder = paste(case, "_merged_50bin", sep = "")
-case_merged = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
-rownames(case_merged) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged)), subfolder, sep = "_")
+case_merged_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_merged_50bin) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged_50bin)), subfolder, sep = "_")
+subfolder = paste(case, "_merged_100bin", sep = "")
+case_merged_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_merged_100bin) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged_100bin)), subfolder, sep = "_")
+subfolder = paste(case, "_merged_500bin", sep = "")
+case_merged_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
+rownames(case_merged_500bin) <- paste("SWGS", gsub('_merged', '' , rownames(case_merged_500bin)), subfolder, sep = "_")
 
 
 # Downsampled:
 subfolder= paste(case, "_down_500bin", sep = "")
-case_down_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+case_down_500bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
 rownames(case_down_500bin) <- paste(rownames(case_down_500bin), subfolder, sep = "_")
 subfolder = paste(case, "_down_100bin", sep = "") 
-case_down_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+case_down_100bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
 rownames(case_down_100bin) <- paste(rownames(case_down_100bin), subfolder, sep = "_")
 subfolder = paste(case, "_down_50bin", sep = "") 
-case_down_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+case_down_50bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
 rownames(case_down_50bin) <- paste(rownames(case_down_50bin), subfolder, sep = "_")
 subfolder = paste(case, "_down_15bin", sep = "") 
-case_down_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+case_down_15bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
 rownames(case_down_15bin) <- paste(rownames(case_down_15bin), subfolder, sep = "_")
 subfolder = paste(case, "_down_5bin", sep = "") 
-case_down_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_TN.tsv", sep =""), sep="\t", header = T)
+case_down_5bin = read.csv(paste(mydir,"/", subfolder, "/", sample ,"_TP_FP_FN.tsv", sep =""), sep="\t", header = T)
 rownames(case_down_5bin) <- paste(rownames(case_down_5bin), subfolder, sep = "_")
 
 
 ## join all data and modify it 
-case_all <- rbind(case_norm, case_merged, case_down_5bin, case_down_15bin, case_down_50bin, case_down_100bin, case_down_500bin)
+case_all <- rbind(case_norm_5bin, case_norm_15bin, case_norm_50bin, case_norm_100bin, case_norm_500bin,
+                  case_merged_5bin, case_merged_15bin, case_merged_50bin, case_merged_100bin, case_merged_500bin,
+                  case_down_5bin, case_down_15bin, case_down_50bin, case_down_100bin, case_down_500bin)
 # get total CN
-case_all$CN <- rowSums(case_all) 
+case_all$Copy_Numbers_Called <- rowSums(case_all) 
 
-# Make the TP,FP and TN into percentages
-case_all[,c("TP_percent", "FP_percent", "TN_percent")] <- NA
+# Make the TP,FP and FN into percentages
+case_all[,c("TP_percent", "FP_percent", "FN_percent")] <- NA
 for (i in 1:nrow(case_all)){
-  case_all[i,"TP_percent"] <- (case_all[i,"TP"]/case_all[i,"CN"]) * 100
-  case_all[i,"FP_percent"] <- (case_all[i,"FP"]/case_all[i,"CN"]) * 100
-  case_all[i,"TN_percent"] <- (case_all[i,"TN"]/case_all[i,"CN"]) * 100
+  case_all[i,"TP_percent"] <- signif( ((case_all[i,"TP"]/case_all[i,"Copy_Numbers_Called"]) * 100), 3)
+  case_all[i,"FP_percent"] <- signif( ((case_all[i,"FP"]/case_all[i,"Copy_Numbers_Called"]) * 100), 3)
+  case_all[i,"FN_percent"] <- signif( ((case_all[i,"FN"]/case_all[i,"Copy_Numbers_Called"]) * 100), 3)
 }
 
 
 case_all$info <- rownames(case_all)
 case_all <- separate(data = case_all, col = info, sep = "_", into = c("SWGS", "sample", "sample_tissue",
-                                                                      "tissue_type", "case", "downsampled", "bin"))
+                                                                      "tissue_type", "case", "depth", "bin"))
 
-case_all$downsampled[is.na(case_all$downsampled)] <- "normal"
+case_all$depth[is.na(case_all$depth)] <- "normal"
 case_all$bin[is.na(case_all$bin)] <- "50bin"
 case_all$bin <- as.factor(gsub('bin*.', '', case_all$bin))
 case_all$bin <- factor(gsub('bin*.', '', case_all$bin), levels=c(5,10,15,50,100,500))
@@ -808,58 +1591,396 @@ case_all$repeats <- gsub('R', 'Repeat2', case_all$repeats)
 case_all[which(case_all$repeats == ""), "repeats"] <- "Repeat1"
 
 # melt the data to merge everything
-case_melt <- melt(case_all[,c("TP_percent", "FP_percent", "TN_percent", "repeats", "tissue_type", "bin")], id.vars=c("tissue_type", "bin", "repeats"))
+case_melt <- melt(case_all[,c("TP_percent", "FP_percent", "FN_percent", "repeats", "tissue_type", "bin")], id.vars=c("tissue_type", "bin", "repeats"))
 # downsamples data only
-case_all_down <- case_all[which(case_all$downsampled %in% "down"),]
-case_all_down_melt <- melt(case_all_down[,c("TP_percent", "FP_percent", "TN_percent", "repeats", "tissue_type", "bin")], id.vars=c("tissue_type", "bin", "repeats"))
-case_melt2 <- melt(case_all[,c("TP_percent", "repeats", "tissue_type", "bin", "downsampled")], id.vars=c("tissue_type", "bin", "repeats", "downsampled"))
+case_all_down <- case_all[which(case_all$depth %in% "down"),]
+case_all_down_melt <- melt(case_all_down[,c("TP_percent", "FP_percent", "FN_percent", "repeats", "tissue_type", "bin")], id.vars=c("tissue_type", "bin", "repeats"))
+case_melt2 <- melt(case_all[,c("TP_percent", "repeats", "tissue_type", "bin", "depth")], id.vars=c("tissue_type", "bin", "repeats", "depth"))
 
-
+datatable(case_all[,c("TP", "FP", "FN", "Copy_Numbers_Called", "TP_percent", "FP_percent", "FN_percent", "repeats", "tissue_type", "bin")])
 
 ggplot(case_all_down_melt[which(case_all_down_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = variable, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP, FP and FN of downsampled case 5 sample across different bins for FF tissue",
-       y = "Percentage", x = "bins")
+  labs(title = paste("Percentages of TP, FP and FN of downsampled ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
 ggplot(case_all_down_melt[which(case_all_down_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = variable, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP, FP and FN of downsampled case 5 sample across different bins for FF tissue",
-       y = "Percentage", x = "bins")
-ggplot(case_melt2[which(case_melt2$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = downsampled, linetype = repeats, color = repeats)) +
+  labs(title = paste("Percentages of TP, FP and FN of downsampled ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
+ggplot(case_melt2[which(case_melt2$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP normal, downsampled and merged case 5 sample across different bins for FFPE tissue",
-       y = "Percentage", x = "bins")
-ggplot(case_melt2[which(case_melt2$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = downsampled, linetype = repeats, color = repeats)) +
+  labs(title = paste("Percentages of TP normal, downsampled and merged ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
+ggplot(case_melt2[which(case_melt2$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP normal, downsampled and merged case 5 sample across different bins for FF tissue",
-       y = "Percentage", z = "bins")
+  labs(title = paste("Percentages of TP normal, downsampled and merged ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
 
 ###### Plot to PDF
-pdf(file = paste(mydir,sample, "_sWGSvsWGS.pdf", sep = ""),
+pdf(file = paste(mydir,sample, "_TP_FP_FN_sWGSvsWGS.pdf", sep = ""),
     width = 10,  height = 4)
 ggplot(case_all_down_melt[which(case_all_down_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = variable, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP, FP and FN of downsampled case 5 sample across different bins for FF tissue",
-       y = "Percentage", x = "bins")
+  labs(title = paste("Percentages of TP, FP and FN of downsampled ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
 
 ggplot(case_all_down_melt[which(case_all_down_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = variable, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP, FP and FN of downsampled case 5 sample across different bins for FF tissue",
-       y = "Percentage", x = "bins")
+  labs(title = paste("Percentages of TP, FP and FN of downsampled ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
 
 
-ggplot(case_melt2[which(case_melt2$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = downsampled, linetype = repeats, color = repeats)) +
+ggplot(case_melt2[which(case_melt2$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP normal, downsampled and merged case 5 sample across different bins for FFPE tissue",
-       y = "Percentage", x = "bins")
+  labs(title = paste("Percentages of TP normal, downsampled and merged ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", x = "bins") +
+  theme_classic()
 
-ggplot(case_melt2[which(case_melt2$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = downsampled, linetype = repeats, color = repeats)) +
+ggplot(case_melt2[which(case_melt2$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
   geom_col(stat="identity", width=.5, position = "dodge") + 
-  labs(title = "Percentages of TP normal, downsampled and merged case 5 sample across different bins for FF tissue",
-       y = "Percentage", z = "bins")
+  labs(title = paste("Percentages of TP normal, downsampled and merged ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+
 dev.off()
+
+```
+
+### Recall and precision
+
+* Recall = TP/(TP+FN)
+* Precision = TP/(TP+FP)
+
+
+```{r}
+case_all[,c("Recall", "Precision")] <- NA
+for (i in 1:nrow(case_all)){
+  case_all[i,"Recall"] <- signif( ((case_all[i,"TP"]/(case_all[i,"TP"] + case_all[i,"FN"])) * 100), 3)
+  case_all[i,"Precision"] <- signif( ((case_all[i,"TP"]/(case_all[i,"TP"] + case_all[i,"FP"])) * 100), 3)
+}
+
+case_all_clean <- case_all[c("tissue_type","depth","bin","Recall","Precision")]
+
+datatable(case_all_clean)
+
+case_all_clean_melt <- melt(case_all[,c("Recall", "repeats", "tissue_type", "bin", "depth")], id.vars=c("tissue_type", "bin", "repeats", "depth"))
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Recall ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Recall ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+
+case_all_clean_melt <- melt(case_all[,c("Precision", "repeats", "tissue_type", "bin", "depth")], id.vars=c("tissue_type", "bin", "repeats", "depth"))
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Precision ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Precision ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+
+pdf(file = paste(mydir,sample, "_recall_precision_sWGSvsWGS.pdf", sep = ""),
+    width = 10,  height = 4)
+case_all_clean_melt <- melt(case_all[,c("Recall", "repeats", "tissue_type", "bin", "depth")], id.vars=c("tissue_type", "bin", "repeats", "depth"))
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Recall ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Recall ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+
+case_all_clean_melt <- melt(case_all[,c("Precision", "repeats", "tissue_type", "bin", "depth")], id.vars=c("tissue_type", "bin", "repeats", "depth"))
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FF"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Precision ", sample," sample across different bins for FF tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+ggplot(case_all_clean_melt[which(case_all_clean_melt$tissue_type %in% "FFPE"),], aes(x = bin, y = value, fill = depth, linetype = repeats, color = repeats)) +
+  geom_col(stat="identity", width=.5, position = "dodge") + 
+  labs(title = paste("Precision ", sample," sample across different bins for FFPE tissue", sep = ""),
+       y = "Percentage", z = "bins") +
+  theme_classic()
+
+dev.off()
+```
+## FFPE and FF concordance
+
+This section will see how many of the bins values are concordant as well as whether the PCA plots agree that the tissues are not vastly different when calculating CNs.
+
+### PCA plot
+
+```{r PCA_plot_case5}
+# transform the data to be readt for prcomp
+raw_df_2 <- raw_df[ , grepl( "SWGS" , names( raw_df ) ) ]
+traw_df_2 <- as.data.frame(t(raw_df_2))
+colnames(traw_df_2) <- raw_df_2$feature
+traw_df_2$samples <- gsub("_S.*","",rownames(traw_df_2))
+traw_df_2$tissuetype <- metadata$Tissue.Type[match(metadata$samplename, traw_df_2$samples)]
+
+traw_df_3 <- traw_df_2[which(rownames(traw_df_2) %in% c("SWGS_N5_6304_S5_L001_markdup", "SWGS_N13_4855_S13_L001_markdup",
+                                           "SWGS_N21_6304R_S21_L001_markdup", "SWGS_N29_4855R_S29_L001_markdup")),]
+
+## PCA plot
+logration_df_pca <- prcomp(traw_df_3[,c(1:51019)],
+                   center = TRUE)
+logration_df_pca.plot <- autoplot(logration_df_pca,
+                          data = traw_df_3,
+                          colour = 'samples',
+                          shape = 'tissuetype',
+                          main = 'PCA plot using raw data for Case5')
+logration_df_pca.plot
+ggplotly(logration_df_pca.plot)
+
 ```
 
 
+### Correlation matrix
+```{r}
+
+sample="CUH190"
+# read  data in
+mydir = "~/Documents/Projects/cancer/sWGS/"
+subfolder = ""
+
+
+# read in samples
+C_samples <- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.raw_calls_all_depths.tsv"))
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".shallow_wgs_validation.raw_calls_all_depths.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  file_name <- file_name[[1]] #get the dataframe from the list
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+C6 <- list(SWGS_N5, SWGS_N21, SWGS_N13, SWGS_N29)      
+C6_raw <- Reduce(function(x, y) merge(x, y, all=TRUE), C6) 
+table(C6_raw[,c(5,6)])
+
+table(C6_raw[,c(7,8)])
+```
+
+### Are the repeats consistent in their summarised segmented copy number
+```{r}
+C_samples <- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
+total_files =  list.files(path = paste0(mydir,subfolder, sep= "" ), pattern= ("*.summarised_calls.tsv"))
+for(i in 1:length(total_files)) { #up to 4 samples
+  file <- total_files[i]
+  file_name <- strsplit(file, ".summarised_calls.tsv") #removes the .tsv taken from file name
+  tsv_file <- read.csv(paste(mydir, subfolder, "/", file, sep= ""), sep="\t", header = T) #read in the file as a dataframe
+  file_name <- file_name[[1]] #get the dataframe from the list
+  assign(file_name, tsv_file) #assigns the tsv_file to the object file_name which is the dataframe
+  file_name <- NULL
+  tsv_file <- NULL
+}
+
+
+# merge all data frames together
+C6 <- list(get(C_samples[1]), get(C_samples[2]), get(C_samples[3]), get(C_samples[4]))           
+C6_sum <- Reduce(function(x, y) merge(x, y, all=TRUE), C6) 
+C6_sum$location <- paste(C6_sum$CHROMOSOME, C6_sum$START, sep=":")
+C6_sum$location <- paste(C6_sum$location, C6_sum$STOP, sep="-")
+C6_sum_location_freq <- as.data.frame(table(C6_sum$location))
+C6_sum_location_freq_df <- as.data.frame(table(C6_sum_location_freq$Freq))
+colnames(C6_sum_location_freq_df) <- c("Number of samples called in Copy_Numbers_Called segment", "Frequency of Copy_Numbers_Called segment")
+C6_sum_location_freq_df
+hist(C6_sum_location_freq$Freq, xlab = "Number of samples called in Copy_Numbers_Called segment")
+```
+### sWGS CN segment distribution across different bins
+
+### Sample N5_6304 
+```{r}
+# sample CUH190 case 5, N5
+Case_WGS <- read.csv(paste(mydir,"CUH190 CNVs.csv", sep=""))
+Case_WGS$bin <- rep("truth_WGS", nrow(Case_WGS))
+colnames(Case_WGS)[colnames(Case_WGS) == "Size..bp."] ="length"
+# 50 bin
+sWGS_5bin = read.csv(paste(mydir,"case5_down_5bin/SWGS_N5_6304_S5_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_5bin$length <- sWGS_5bin$STOP - sWGS_5bin$START
+sWGS_5bin$bin <- "5kbp bin"
+# 15 bin
+sWGS_15bin = read.csv(paste(mydir,"case5_down_15bin/SWGS_N5_6304_S5_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_15bin$length <- sWGS_15bin$STOP - sWGS_15bin$START
+sWGS_15bin$bin <- "15kbp bin"
+# 50 bin
+sWGS_50bin = read.csv(paste(mydir,"case5_down_50bin/SWGS_N5_6304_S5_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_50bin$length <- sWGS_50bin$STOP - sWGS_50bin$START
+sWGS_50bin$bin <- "50kbp bin"
+# 100 bin
+sWGS_100bin = read.csv(paste(mydir,"case5_down_100bin/SWGS_N5_6304_S5_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_100bin$length <- sWGS_100bin$STOP - sWGS_100bin$START
+sWGS_100bin$bin <- "100kbp bin"
+# 500 bin
+sWGS_500bin = read.csv(paste(mydir,"case5_down_500bin/SWGS_N5_6304_S5_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_500bin$length <- sWGS_500bin$STOP - sWGS_500bin$START
+sWGS_500bin$bin <- "500kbp bin"
+
+sWGS <- rbind(sWGS_5bin, sWGS_15bin, sWGS_50bin, sWGS_100bin,sWGS_500bin)
+sWGS <- sWGS[,c("bin" , "length")]
+
+WGS_sWGS_length <- rbind(sWGS, Case_WGS[,c("bin" , "length")])
+options(scipen = 999)
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins) ") +
+  theme_classic() 
+
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic() +
+  xlim(0, 25000000)
+
+```
+
+### SampleN13_4855_S13
+```{r}
+# sample CUH190 case 5
+# 50 bin
+sWGS_5bin = read.csv(paste(mydir,"case5_down_5bin/SWGS_N21_6304R_S21_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_5bin$length <- sWGS_5bin$STOP - sWGS_5bin$START
+sWGS_5bin$bin <- "5kbp bin"
+# 15 bin
+sWGS_15bin = read.csv(paste(mydir,"case5_down_15bin/SWGS_N21_6304R_S21_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_15bin$length <- sWGS_15bin$STOP - sWGS_15bin$START
+sWGS_15bin$bin <- "15kbp bin"
+# 50 bin
+sWGS_50bin = read.csv(paste(mydir,"case5_down_50bin/SWGS_N21_6304R_S21_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_50bin$length <- sWGS_50bin$STOP - sWGS_50bin$START
+sWGS_50bin$bin <- "50kbp bin"
+# 100 bin
+sWGS_100bin = read.csv(paste(mydir,"case5_down_100bin/SWGS_N21_6304R_S21_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_100bin$length <- sWGS_100bin$STOP - sWGS_100bin$START
+sWGS_100bin$bin <- "100kbp bin"
+# 500 bin
+sWGS_500bin = read.csv(paste(mydir,"case5_down_500bin/SWGS_N21_6304R_S21_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_500bin$length <- sWGS_500bin$STOP - sWGS_500bin$START
+sWGS_500bin$bin <- "500kbp bin"
+
+sWGS <- rbind(sWGS_5bin, sWGS_15bin, sWGS_50bin, sWGS_100bin,sWGS_500bin)
+sWGS <- sWGS[,c("bin" , "length")]
+
+WGS_sWGS_length <- rbind(sWGS, Case_WGS[,c("bin" , "length")])
+options(scipen = 999)
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic()
+
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic() +
+  xlim(0, 25000000)
+
+```
+
+### Sample N13_4855
+```{r}
+# sample CUH190 case 5
+# 50 bin
+sWGS_5bin = read.csv(paste(mydir,"case5_down_5bin/SWGS_N13_4855_S13_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_5bin$length <- sWGS_5bin$STOP - sWGS_5bin$START
+sWGS_5bin$bin <- "5kbp bin"
+# 15 bin
+sWGS_15bin = read.csv(paste(mydir,"case5_down_15bin/SWGS_N13_4855_S13_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_15bin$length <- sWGS_15bin$STOP - sWGS_15bin$START
+sWGS_15bin$bin <- "15kbp bin"
+# 50 bin
+sWGS_50bin = read.csv(paste(mydir,"case5_down_50bin/SWGS_N13_4855_S13_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_50bin$length <- sWGS_50bin$STOP - sWGS_50bin$START
+sWGS_50bin$bin <- "50kbp bin"
+# 100 bin
+sWGS_100bin = read.csv(paste(mydir,"case5_down_100bin/SWGS_N13_4855_S13_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_100bin$length <- sWGS_100bin$STOP - sWGS_100bin$START
+sWGS_100bin$bin <- "100kbp bin"
+# 500 bin
+sWGS_500bin = read.csv(paste(mydir,"case5_down_500bin/SWGS_N13_4855_S13_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_500bin$length <- sWGS_500bin$STOP - sWGS_500bin$START
+sWGS_500bin$bin <- "500kbp bin"
+
+sWGS <- rbind(sWGS_5bin, sWGS_15bin, sWGS_50bin, sWGS_100bin,sWGS_500bin)
+sWGS <- sWGS[,c("bin" , "length")]
+
+WGS_sWGS_length <- rbind(sWGS, Case_WGS[,c("bin" , "length")])
+options(scipen = 999)
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic()
+
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic() +
+  xlim(0, 25000000)
+
+```
+
+### Sample N29_4855R_S29
+```{r}
+# sample CUH190 case 5
+# 50 bin
+sWGS_5bin = read.csv(paste(mydir,"case5_down_5bin/SWGS_N29_4855R_S29_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_5bin$length <- sWGS_5bin$STOP - sWGS_5bin$START
+sWGS_5bin$bin <- "5kbp bin"
+# 15 bin
+sWGS_15bin = read.csv(paste(mydir,"case5_down_15bin/SWGS_N29_4855R_S29_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_15bin$length <- sWGS_15bin$STOP - sWGS_15bin$START
+sWGS_15bin$bin <- "15kbp bin"
+# 50 bin
+sWGS_50bin = read.csv(paste(mydir,"case5_down_50bin/SWGS_N29_4855R_S29_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_50bin$length <- sWGS_50bin$STOP - sWGS_50bin$START
+sWGS_50bin$bin <- "50kbp bin"
+# 100 bin
+sWGS_100bin = read.csv(paste(mydir,"case5_down_100bin/SWGS_N29_4855R_S29_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_100bin$length <- sWGS_100bin$STOP - sWGS_100bin$START
+sWGS_100bin$bin <- "100kbp bin"
+# 500 bin
+sWGS_500bin = read.csv(paste(mydir,"case5_down_500bin/SWGS_N29_4855R_S29_L001_markdup.downsampled.summarised_calls.tsv", sep =""), sep = "\t")
+sWGS_500bin$length <- sWGS_500bin$STOP - sWGS_500bin$START
+sWGS_500bin$bin <- "500kbp bin"
+
+sWGS <- rbind(sWGS_5bin, sWGS_15bin, sWGS_50bin, sWGS_100bin,sWGS_500bin)
+sWGS <- sWGS[,c("bin" , "length")]
+
+WGS_sWGS_length <- rbind(sWGS, Case_WGS[,c("bin" , "length")])
+options(scipen = 999)
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic()
+
+ggplot(WGS_sWGS_length, aes(x = length)) +
+  geom_density(aes(color = bin)) +
+  labs(title = "Truth WGS and sWGS CN segment distribution (across different bins)") +
+  theme_classic() +
+  xlim(0, 25000000)
+```
+
+
+## Methods (packages and versions)
 
 ```{r}
 sessionInfo()
