@@ -100,4 +100,4 @@ dev.off()
 ## Summarised calls - one file per sample
 QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
 ## Raw calls - one file that contains *all* samples together
-QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "all_calls_binsize_50_merged.raw_calls_all_depths.tsv")
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "all_calls_binsize_500_merged.raw_calls_all_depths.tsv")
