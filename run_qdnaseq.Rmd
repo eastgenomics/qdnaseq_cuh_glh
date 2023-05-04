@@ -1,7 +1,6 @@
 ---
 title: "run_me.Rmd"
-author: "Sophie Paul"
-date: '2023-04-05'
+author: "Nadia Mohammed"
 output: html_document
 ---
 
@@ -10,8 +9,10 @@ output: html_document
 ### Step 1: Install and Load libraries
 
 ```{r}
-install.packages("tidyverse")
-install.packages("devtools")
+if (!require("tidyverse", quietly = TRUE))
+    install.packages("tidyverse")
+if (!require("devtools", quietly = TRUE))
+    install.packages("devtools")
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
@@ -29,7 +30,11 @@ library(QDNAseq.hg38)
 Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
 
 ```{r}
-bins <- getBinAnnotations(binSize=500, genome="hg38")
+bins <- function(binsize){
+  getBinAnnotations(binSize=binsize, genome="hg38")
+}
+
+binsize <- binsize
 ```
 
 ### Step 3: Read in BAM(s)
@@ -44,7 +49,9 @@ readCounts <- binReadCounts(bins, path = "<BAM_PATH>")
 ```{r}
 #generate segmented read count plot
 #segmentation used (sqrt(x + 3/8) to 
-#stabilise variance of a Poisson distribution 
+#stabilise variance of a Poisson distribution
+#Blacklist filter set to 100 to not restrict filtering
+#and allow overlap initially
 copy_Numbers_segmented <- readCounts %>%
   applyFilters(residual=TRUE, blacklist=100) %>%
   # Estimate and correct read counts as a function of GC content and
@@ -88,8 +95,10 @@ copyNumbersCalled <- readCounts %>%
 ### Step 5: Save plot output
 
 ```{r}
-png(width=1300, height=800)
+png(filename = "%s_copy_number_segmented.png", width=1300, height=800)
 plot(copy_Numbers_segmented)
+dev.off()
+png(filename = "%s_called_copy_numbers.png", width=1300, height=800)
 plot(copyNumbersCalled)
 dev.off()
 ```
@@ -98,6 +107,6 @@ dev.off()
 
 ```{r}
 ## Summarised calls - one file per sample
-QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
+QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = paste("%s.summarised_calls_binsize_",binsize,".tsv", sep = "")
 ## Raw calls - one file that contains *all* samples together
-QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "all_calls_binsize_500_merged.raw_calls_all_depths.tsv")
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "all_calls_binsize",binsize,"_merged.raw_calls_all_depths.tsv", sep = "")
