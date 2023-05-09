@@ -30,11 +30,10 @@ library(QDNAseq.hg38)
 Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
 
 ```{r}
-bins <- function(binsize){
-  getBinAnnotations(binSize=binsize, genome="hg38")
-}
+#Size of bin annotation can be 1, 5, 10, 15, 30, 50, 100, 500 and 1000 kbp for the human genome build hg38
+binsize <- "<binsize>"
+bins <- getBinAnnotations(binSize=binsize, genome="hg38")
 
-binsize <- binsize
 ```
 
 ### Step 3: Read in BAM(s)
