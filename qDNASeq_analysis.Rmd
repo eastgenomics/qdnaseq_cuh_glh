@@ -25,7 +25,7 @@ library(reshape2)
 
 # Introduction
 
-This report investigates the output from qDNASeq and compare the output to WGS of the same sample from GEL. The study design is there are 8 patiensts, each with 2 FF sample and 2 FFPE samples, giving us a total of 32 samples. The samples have been processed on the NovaSeq machine using shallow WGS technique, therefore we expect very low coverages. The first part will look at general QC of the data, the second part will look at each sample in detail at different coverages (normal vs downsampled) and different bins, with comparison to WGS and concordance between tissue types.
+This report investigates the output from qDNASeq and compare the output to WGS of the same sample from GEL. The study design is there are 8 patiensts, each with 2 FF sample and 2 FFPE samples, giving us a total of 32 samples. The samples have been processed on the NovaSeq machine using shallow WGS technique, therefore we expect very low coverages. The first part will look at general QC of the data, the second part will look at each sample in detail at different coverages (normal, downsampled to 5x and merged then downsampled to 5X) and different bins, with comparison to WGS and concordance between tissue types.
 
   
 
@@ -119,6 +119,17 @@ bed_missed_in_sample <- function(sample_bed, truth_bed){
 # - Make separate tables for TP, FP and FN with gene annotation
 
 sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes, filters, mart){
+  ## Input definitions:
+  # Case_WGS -> qDNASeq segment file
+  # metadata -> file that contains info on sample, tissue type, case number etc
+  # sample -> case number e.g CUH123
+  # mydir -> root directory of project that contains all subfolders 
+  # subfolders -> output from qDNASeq using a specific depth & bin
+  # attributes -> what data we want from ensembl biomart e.g chr, start 
+  # filters -> what data we will provide to query ensembl biomart
+  # mart -> what species database we want from ensembl biomart
+  
+  
   # get the summaried data for samples associated to this case
   C_samples <- unique(metadata[which(metadata$CUH_number %in% sample), "samplename"])
   C_fullsamplenames <-  unique(metadata[which(metadata$CUH_number %in% sample), "fullsamplename"])
@@ -142,7 +153,7 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, mydir, subfolder, attributes
     # contains all intersect with TP and FP
     intersect_loj <- bed_intersect(sample_bed = get(paste(N, "_bed", sep="")), truth_bed = Case_WGS_location_bed)
     # row = sample, column = TP
-    # if true, all will be coordinates
+    # if there is overlap, all rows will be coordinates
     TP <- intersect_loj[which(intersect_loj[,4] > 0),]
     Case_truthvspredicted_df[i,1] <- nrow(TP)
     # if true, write yes as to whether this yes is for the FF or the FFPE tissue
@@ -254,10 +265,10 @@ metadata <- read.delim(paste(mydir, "metadata.txt", sep= "/"), sep = "\t")
 metadata$fullsamplename <- paste(metadata$samplename,"_",metadata$Tissue.Type, sep="")
 
 # read in biomart info 
-#mart <- useMart("ensembl")
-#mart <- useDataset("hsapiens_gene_ensembl", mart)
-#attributes <- c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "start_position", "end_position")
-#filters <- c("chromosome_name","start","end")
+mart <- useMart("ensembl")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+attributes <- c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "start_position", "end_position")
+filters <- c("chromosome_name","start","end")
 
 ```
 
@@ -1777,8 +1788,7 @@ for(i in 1:length(total_files)) { #up to 4 samples
 C6 <- list(SWGS_N5, SWGS_N21, SWGS_N13, SWGS_N29)      
 C6_raw <- Reduce(function(x, y) merge(x, y, all=TRUE), C6) 
 table(C6_raw[,c(5,6)])
-
-table(C6_raw[,c(7,8)])
+as.data.frame(table(C6_raw[,c(7,8)]))
 ```
 
 ### Are the repeats consistent in their summarised segmented copy number
