@@ -1,26 +1,39 @@
 ---
 title: "run_me.Rmd"
-author: "Sophie Paul"
-date: '2023-04-05'
+author: "Nadia Mohammed"
 output: html_document
 ---
 
 # QDNASeq pipeline
 
-### Step 1: Load libraries
+### Step 1: Install and Load libraries
 
 ```{r}
+if (!require("tidyverse", quietly = TRUE))
+    install.packages("tidyverse")
+if (!require("devtools", quietly = TRUE))
+    install.packages("devtools")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("QDNAseq")
+
+devtools::install_github(repo = "asntech/QDNAseq.hg38")
+
 library(tidyverse)
 library(QDNAseq)
 library(QDNAseq.hg38)
 ```
 
-### Step 2: Read in bin annotations
+### Step 2: Read in bin annotations for UCSC hg38 genome
 
 Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
 
 ```{r}
-bins <- getBinAnnotations(binSize=50, genome="hg38")
+#Size of bin annotation can be 1, 5, 10, 15, 30, 50, 100, 500 and 1000 kbp for the human genome build hg38
+binsize <- "<binsize>"
+bins <- getBinAnnotations(binSize=binsize, genome="hg38")
+
 ```
 
 ### Step 3: Read in BAM(s)
@@ -32,9 +45,29 @@ readCounts <- binReadCounts(bins, path = "<BAM_PATH>")
 ```
 
 ### Step 4: Run CNV calling algo
+```{r}
+#generate segmented read count plot
+#segmentation used (sqrt(x + 3/8) to 
+#stabilise variance of a Poisson distribution
+#Blacklist filter set to 100 to not restrict filtering
+#and allow overlap initially
+copy_Numbers_segmented <- readCounts %>%
+  applyFilters(residual=TRUE, blacklist=100) %>%
+  # Estimate and correct read counts as a function of GC content and
+  # mappability (removes further noise from e.g. FFPE)
+  estimateCorrection() %>%
+  correctBins() %>%
+
+  # Normalise and smooth corrected read counts
+  smoothOutlierBins()  %>%
+  normalizeBins() %>%
+  segmentBins(transformFun="sqrt")
+```
+
 
 ```{r}
-# call copy numbers
+# Generate called read count plots
+# for final CNV call profiles
 copyNumbersCalled <- readCounts %>%
 
     # Filter reads based on a) residuals after fitting to a model, 
@@ -61,7 +94,10 @@ copyNumbersCalled <- readCounts %>%
 ### Step 5: Save plot output
 
 ```{r}
-png(filename = "output_plots/%s")
+png(filename = "%s_copy_number_segmented.png", width=1300, height=800)
+plot(copy_Numbers_segmented)
+dev.off()
+png(filename = "%s_called_copy_numbers.png", width=1300, height=800)
 plot(copyNumbersCalled)
 dev.off()
 ```
@@ -70,8 +106,8 @@ dev.off()
 
 ```{r}
 ## Summarised calls - one file per sample
-QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls", file = "%s.summarised_calls.tsv")
-
+QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls",
+                    file = paste("%s.summarised_calls_binsize_",binsize,".tsv", sep = ""))
 ## Raw calls - one file that contains *all* samples together
-QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls", file = "shallow_wgs_validation.raw_calls_all_depths.tsv")
-```
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls",
+                    file = paste("all_calls_binsize",binsize,"_merged.raw_calls_all_depths.tsv", sep = ""))
