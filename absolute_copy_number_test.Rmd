@@ -1,0 +1,198 @@
+---
+title: "absolute_copy_number"
+author: "Nadia Mohammed"
+date: "13/06/2023"
+output: html_document
+---
+
+
+# QDNASeq pipeline
+
+### Step 1: Install and Load libraries
+
+```{r}
+library(tidyverse)
+library(QDNAseq)
+library(QDNAseq.hg38)
+library(cn.mops)
+library(ACE)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(MatrixGenerics)
+library(IRanges)
+library(S4Vectors)
+library(GenomicRanges)
+library(Matrix)
+```
+
+### Step 2: Read in bin annotations for UCSC hg38 genome
+
+Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
+
+```{r}
+#Size of bin annotation can be 1, 5, 10, 15, 30, 50, 100, 500 and 1000 kbp for the human genome build hg38
+binsize <- 100
+bins <- getBinAnnotations(binSize=binsize, genome="hg38")
+
+```
+
+### Step 3: Read in BAM(s)
+
+You can read in a directory of BAM files
+
+```{r}
+readCounts <- binReadCounts(bins, path = "/home/software/bams")
+```
+
+### Step 4: Run CNV calling algo
+```{r}
+#generate segmented read count plot
+#segmentation used (sqrt(x + 3/8) to 
+#stabilise variance of a Poisson distribution
+#Blacklist filter set to 100 to not restrict filtering
+#and allow overlap initially
+copy_Numbers_segmented <- readCounts %>%
+  applyFilters(residual=TRUE, blacklist=TRUE, chromosomes=NA) %>%
+  # Estimate and correct read counts as a function of GC content and
+  # mappability (removes further noise from e.g. FFPE)
+  estimateCorrection() %>%
+  correctBins() %>%
+
+  # Normalise and smooth corrected read counts
+  smoothOutlierBins()  %>%
+  normalizeBins() %>%
+  segmentBins(transformFun="sqrt")
+```
+
+
+```{r}
+# Generate called read count plots
+# for final CNV call profiles
+copyNumbersCalled <- readCounts %>%
+
+    # Filter reads based on a) residuals after fitting to a model, 
+    # and b) on amount  of acceptable overlap with 
+    # blacklisted (i.e. problematic) regions/known artifacts
+    applyFilters(residual=TRUE, blacklist=TRUE, chromosomes=NA) %>%
+
+    # Estimate and correct read counts as a function of GC content and
+    # mappability (removes further noise from e.g. FFPE)
+    estimateCorrection() %>%
+    correctBins() %>%
+
+    # Normalise and smooth corrected read counts
+    normalizeBins() %>%
+    smoothOutlierBins() %>%
+
+    # Segment bins: i.e. group similar regions together
+    # in a single "line" or "window" in terms of read count value
+    segmentBins(transformFun="sqrt") %>%
+    normalizeSegmentedBins() %>%
+    callBins()
+```
+
+### Step 5: Save plot output
+
+```{r}
+#PNG naming needs fixing - "%s_" generates error
+#Error in png(filename = "%s_called_copy_numbers.png", width = 1300, height = 800) : 
+#  invalid 'filename'
+png(filename = "copy_number_segmented.png", width=1300, height=800)
+plot(copy_Numbers_segmented)
+dev.off()
+png(filename = "called_copy_numbers.png", width=1300, height=800)
+plot(copyNumbersCalled)
+dev.off()
+```
+
+### Step 6: Save tabular data
+
+```{r}
+## Summarised calls - one file per sample
+QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls",
+                    file = paste("%s.summarised_calls_binsize_",binsize,".tsv", sep = ""))
+## Raw calls - one file that contains *all* samples together MAY NOT NEED THIS FUNCTION
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls",
+                    file = paste("all_calls_binsize",binsize,"_merged.raw_calls_all_depths.tsv", sep = ""))
+## Write out raw calls - one file that contains *all* samples together
+#qDNAseq_raw_file <- QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls",
+#                    file = paste("all_calls_binsize",binsize,"_merged.raw_calls_all_depths.tsv", sep = ""))
+```
+
+### Step 7: Use qDNAseq object to retrieve absolute copy number
+
+Note: This step has used "ACE" package in conjunction with additional packages including:
+-BSgenome.Hsapiens.UCSC.hg38
+-MatrixGenerics
+-IRanges
+-S4Vectors
+-GenomicRanges
+
+```{r}
+# Create raw calls df for "Absolute_Copy_Number" function
+qDNAseq_raw_file <- list.files(pattern="merged\\.raw_calls_all_depths\\.tsv$")
+qDNAseq_raw_file <-read.table(qDNAseq_raw_file, header = TRUE, sep = "\t")
+# Create output file name for "Absolute_Copy_Number" function
+output_file <- paste("absolute_CN_binsize_",binsize,"_merged.tsv", sep = "")
+
+#Function to estimate absolute copy number
+Absolute_Copy_Number <- function(qDNAseq_raw_file, output_file) {
+
+  # Generate location data frame
+  qDNAseq_loc <- data.frame(
+    chr = qDNAseq_raw_file$chromosome,
+    start = qDNAseq_raw_file$start,
+    end = qDNAseq_raw_file$end
+  )
+
+  #Generage Iranges object to calculate coverage from locations 
+  #in the qDNAseq object
+  #How do add chromosome to
+  ranges <- IRanges(start = qDNAseq_loc$start, end = qDNAseq_loc$end,
+                    names = qDNAseq_loc$chr)
+  
+  #Calculate read depth using the copy number data and location data frame
+  read_depth <- coverage(ranges)
+  #get the chromsome number of each entry
+  chrom_names <- names(ranges)
+  #check output objects
+  print(read_depth)
+  print(chrom_names)
+  #the read_depth object - should be an S4Vector
+  class(read_depth)
+
+  #Set parameters  for cn.mops function manually
+  #https://bioconductor.org/packages/devel/bioc/manuals/cn.mops/man/cn.mops.pdf -page 6 
+  #NOTE: Will need to explore if parameters are suitable for .samples
+  params <- List(window = 100, weight = "equal", margin = c(30,30), threshold = 0.8,
+                 parallel = TRUE)
+  
+  #Convert S4 vector to matrix
+  #To get CNV segments in cn.mops function, input must be matrix or gRanges object
+  read_depth_matrix <- as.matrix(read_depth)
+  #Matrix is very large element, create a sparse matrix to deal with memory
+  #efficiency
+  sparse_mat <- sparseMatrix(i = row(read_depth_matrix), j = col(read_depth_matrix),
+                             x = unlist(read_depth_matrix)) #<- command aborted terminal locally 
+
+  # Call CNV segments using cn.mops
+  cnmops_obj <- cn.mops(sparse_mat, param = params, sampleid = chrom_names)
+  
+  # Calculate absolute copy number using ACE
+  ace_obj <- ACE::ace(cnmops_obj)
+  abs_copies <- ACE::getAbsoluteCopyNumber(ace_obj, segments = cnmops_obj)
+
+  # Save as df and write outputs to .tsv
+  abs_copies_df <- data.frame(abs_copies)
+  #include chromosome number to output df
+  abs_copies_df$chromosome <- chrom_names
+  write.table(abs_copies_df, output_file, sep = "\t",
+              quote = FALSE, row.names = TRUE, col.names = TRUE)
+
+  return(abs_copies_df)
+}
+
+Absolute_Copy_Number(qDNAseq_raw_file, output_file)
+```
+```{r}
+sessionInfo()
+```
