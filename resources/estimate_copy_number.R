@@ -161,28 +161,3 @@ run_ace_pipeline <- function(object, QDNAseqobjectsample){
   generate_CN_dfs()
   save_CN_dfs()
 }
-  
-################# DATA FOR POSTANAYLSISLOOP ###############
-# Need models, cellularity, ploidy, and standard variables
-for (sample in QDNAseqobjectsample){
-  run_ace_pipeline(sample, QDNAseqobjectsample)
-}
-
-get_models <- function(n, object, QDNAseqobjectsample) {
-  models <- lapply(1:n, generate_sample_model, object = object, QDNAseqobjectsample = QDNAseqobjectsample)
-  return(models)
-}
-
-cellularity <- function(QDNAseqobjectsample, model) {
-  bestfit <- model$minima
-  return(bestfit)
-}
-
-cellulist <- lapply(models, cellularity, QDNAseqobjectsample=QDNAseqobjectsample)
-
-postanalysisloop(object, inputdir = userpath, postfix = "_mutations",
-                 outputdir = file.path(userpath,"output_loop"), imagetype = 'png')
-
-for sample in c(1:n){
-  run_ace_pipeline(sample, QDobject)
-}
