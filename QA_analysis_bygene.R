@@ -152,7 +152,6 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, copynumber_df, mydir, subfol
   Case_truthvspredicted_df[copynumber_df,1] <- nrow(TP)
   # if true, write yes as to whether this yes is for the FF or the FFPE tissue
   # first get the truth location as chr:start-end
-  TP$truth_location <- paste(TP$chr.b, ":", TP$start.b, "-", TP$end.b, sep = "")
   # row = sample, column = FP
   # if FP, they will exist in 4,5,6 column (truth dataset) as -1
   Case_truthvspredicted_df[copynumber_df,2] <- nrow(intersect_loj[which(intersect_loj[,4] == "."),])
