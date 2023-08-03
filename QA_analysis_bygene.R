@@ -160,11 +160,13 @@ sWGS_vs_WGS <- function(Case_WGS, metadata, sample, copynumber_df, mydir, subfol
                              truth_bed = Case_WGS_location_bed, sample = sample,
                              mydir = mydir, subfolder = subfolder)
   Case_truthvspredicted_df[copynumber_df,3] <- nrow(FN[which(FN[,4] == "."),])
-  
+  Case_truthvspredicted_df$genes <- nrow(Case_WGS)
+  Case_truthvspredicted_df$sample <- rownames(Case_truthvspredicted_df)
+  Case_truthvspredicted_df <- Case_truthvspredicted_df[,c("sample","TP","FP","FN", "genes")]
   datatable(Case_truthvspredicted_df)
   write.table(Case_truthvspredicted_df, 
               file = paste(mydir,"/", subfolder, "/", sample, "_", tool ,"_TP_FP_FN_gene.tsv", sep =""),
-              sep = "\t", col.names = T, row.names = T, quote = F)
+              sep = "\t", col.names = T, row.names = F, quote = F)
 }
 
 
