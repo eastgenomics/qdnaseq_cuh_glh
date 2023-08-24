@@ -4,17 +4,28 @@ library(magrittr)
 library(QDNAseq)
 library(QDNAseq.hg38)
 library(ACE)
+library(ggplot2)
 
 #################### READ INPUTS ################################
+
+# This script will use qDNASeq and ACE and generate outputs on per
+# sample basis usiung hg38 reference genome. This is because uploading 
+# .bam files takes alot of memory and allows seperate outputs per sample 
+# should any given sample on a run fail (e.g. fail QC metrics)
+# Argument input follows a specific order
+
+# args 1 = BAM directory
+# args 2 = Selected binsize 
 
 # bam_dir <- commandLineArgs(sys.argv[0])
 args <- commandArgs(trailingOnly = TRUE)
 bam_dir <- args[1]
-binsize <- 50
+binsize <- args[2]
 bins <- getBinAnnotations(binSize=binsize, genome="hg38")
 readCounts <- binReadCounts(bins, path = bam_dir)
-filename <- tools::file_path_sans_ext(bam_dir)
-
+files <- list.files(bam_dir, pattern = "\\.bam$", full.names = TRUE)
+filename <- tools::file_path_sans_ext(basename(files))
+QDNAseqobjectsample <- 1
 
 ################## QDNASEQ PIPELINE #############################
 
@@ -90,74 +101,50 @@ QDNAseq::exportBins(copyNumbersCalled,
 
 ################## ACE FUNCTIONS #############################
 
-generate_sample_model <- function(object, QDNAseqobjectsample){
-  ploidy <- get_ploidy_for_sample(QDNASeqobjectsample)
-  # Perform model fitting
+generate_sample_model <- function(object, QDNAseqobjectsample, filename){
+  # Perform model fitting on a single sample
   model1 <- singlemodel(object, QDNAseqobjectsample = QDNAseqobjectsample)
   # Select best fit by examining error lists (cellularity where relative error is lowest)
   bestfit1 <- model1$minima[tail(which(model1$rerror==min(model1$rerror)), 1)]
   besterror1 <- min(model1$rerror)
   lastfit1 <- tail(model1$minima, 1)
   lasterror1 <- tail(model1$rerror, 1)
+  error_plot <- print(model1$errorplot + ggtitle(paste0("sample ", filename, " - errorlist")) +
+                        theme(plot.title = element_text(hjust = 0.5)))
+  #  Use best fit and best error to select best model for absolute CN plot
+  png(paste0(filename,"_errorplot.png"))
+  ggsave(paste0(filename, "_errorplot.png"), error_plot, limitsize = FALSE)
+  dev.off()
+  
+  return(model1)
 }
 
-
-generate_absolute_plot <- function(object, QDNAseqobjectsample) {
-  # Use best fit for absolute copy number plot of sample
+generate_absolute_plot <- function(object, QDNAseqobjectsample, bestfit1, 
+                                   besterror1, model1, filename) {
   absolute_plot <- singleplot(object, QDNAseqobjectsample = QDNAseqobjectsample, cellularity = bestfit1,
                               error = besterror1, standard = model1$standard,
                               title = paste0(filename, "- binsize", binsize, "kbp_- 2N fit 1"))
-  dev.off()
-}
-
-
-save_absolute_plot <- function(absolute_plot){
+  # Create absolute CN plot
   png(paste0(filename,"_plot.png"))
   ggsave(paste0(filename, "_absoluteCN_plot.png"), absolute_plot, limitsize = FALSE)
   dev.off()
 }
 
-
-generate_error_plots <- function(object, QDNAseqobjectsample) {
-  error_plot <- print(model1$errorplot + ggtitle(paste0("sample ", QDNAseqobjectsample, " - errorlist")) +
-                        theme(plot.title = element_text(hjust = 0.5)))
-}
-
-
-save_error_plot <- function(error_plot){
-  png(paste0(filename,"_errorplot.png"))
-  ggsave(paste0(filename, "_errorplot.png"), error_plot, limitsize = FALSE)
-  dev.off()
-}
-
-
-generate_CN_dfs <- function(object, QDNAseqobjectsample) {
-  # generate all absolute copy numbers df
+generate_CN_dfs <- function(object, QDNAseqobjectsample, filename) {
   template <- objectsampletotemplate(object, index = QDNAseqobjectsample)
-  write.table(template, file = paste0(filename,"absolute_copy_number",".tsv"),
-              sep = "\t", quote = FALSE, row.names = FALSE)
-  # generate segmented copy number df
+  write.table(template, file = paste0(filename,"_absolute_copy_number.tsv"),
+              sep = "\t")
   adjusted_segments <- getadjustedsegments(template, log = TRUE)
   write.table(adjusted_segments, file = paste0(filename,"_adjusted_segments.tsv"),
-              sep =    "\t", quote = FALSE, row.names = FALSE)
-}
-  
-
-save_CN_dfs <- function(template, adjusted_segments){
-  write.table(template, file = paste0(filename,"absolute_copy_number",".tsv"),
-              sep = "\t", quote = FALSE, row.names = FALSE)
-  write.table(adjusted_segments, file = paste0(filename,"_adjusted_segments.tsv"),
-              sep =    "\t", quote = FALSE, row.names = FALSE)
+              sep =	"\t")
 }
 
-################## ACE WORKFLOW #############################
-
-run_ace_pipeline <- function(object, QDNAseqobjectsample){
-  generate_sample_model()
-  generate_absolute_plot()
-  save_absolute_plot()
-  generate_error_plots()
-  save_error_plot()
-  generate_CN_dfs()
-  save_CN_dfs()
+run_ace_pipeline <- function(object, QDNAseqobjectsample, filename){
+  model1 <- generate_sample_model(object, QDNAseqobjectsample, filename)
+  bestfit1 <- model1$minima[tail(which(model1$rerror==min(model1$rerror)), 1)]
+  besterror1 <- min(model1$rerror)
+  generate_absolute_plot(object, QDNAseqobjectsample, bestfit1, besterror1, model1, filename)
+  generate_CN_dfs(object, QDNAseqobjectsample, filename)
 }
+
+run_ace_pipeline(copyNumbersCalled, QDNAseqobjectsample, filename)
