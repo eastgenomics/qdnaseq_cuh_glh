@@ -10,7 +10,7 @@ library(ggplot2)
 
 # This script will use qDNASeq and ACE and generate outputs on per
 # sample basis usiung hg38 reference genome. This is because uploading 
-# .bam files takes alot of memory and allows seperate outputs per sample 
+# .bam files takes alot of memory and allows separate outputs per sample 
 # should any given sample on a run fail (e.g. fail QC metrics)
 # Argument input follows a specific order
 
