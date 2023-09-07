@@ -21,6 +21,7 @@ library(ggplot2)
 args <- commandArgs(trailingOnly = TRUE)
 bam_dir <- args[1]
 binsize <- args[2]
+ploidy <- args[3]
 bins <- getBinAnnotations(binSize=binsize, genome="hg38")
 readCounts <- binReadCounts(bins, path = bam_dir)
 files <- list.files(bam_dir, pattern = "\\.bam$", full.names = TRUE)
@@ -101,9 +102,9 @@ QDNAseq::exportBins(copyNumbersCalled,
 
 ################## ACE FUNCTIONS #############################
 
-generate_sample_model <- function(object, QDNAseqobjectsample, filename){
+generate_sample_model <- function(object, QDNAseqobjectsample, filename, ploidy){
   # Perform model fitting on a single sample
-  model1 <- singlemodel(object, QDNAseqobjectsample = QDNAseqobjectsample)
+  model1 <- singlemodel(object, QDNAseqobjectsample = QDNAseqobjectsample, ploidy = ploidy)
   # Select best fit by examining error lists (cellularity where relative error is lowest)
   bestfit1 <- model1$minima[tail(which(model1$rerror==min(model1$rerror)), 1)]
   besterror1 <- min(model1$rerror)
@@ -139,8 +140,8 @@ generate_CN_dfs <- function(object, QDNAseqobjectsample, filename) {
               sep =	"\t")
 }
 
-run_ace_pipeline <- function(object, QDNAseqobjectsample, filename){
-  model1 <- generate_sample_model(object, QDNAseqobjectsample, filename)
+run_ace_pipeline <- function(object, QDNAseqobjectsample, filename, ploidy){
+  model1 <- generate_sample_model(object, QDNAseqobjectsample, filename, ploidy)
   bestfit1 <- model1$minima[tail(which(model1$rerror==min(model1$rerror)), 1)]
   besterror1 <- min(model1$rerror)
   generate_absolute_plot(object, QDNAseqobjectsample, bestfit1, besterror1, model1, filename)
