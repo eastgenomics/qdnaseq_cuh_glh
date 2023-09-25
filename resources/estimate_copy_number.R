@@ -148,4 +148,4 @@ run_ace_pipeline <- function(object, QDNAseqobjectsample, filename, ploidy){
   generate_CN_dfs(object, QDNAseqobjectsample, filename)
 }
 
-run_ace_pipeline(copyNumbersCalled, QDNAseqobjectsample, filename)
+run_ace_pipeline(copyNumbersCalled, QDNAseqobjectsample, filename, ploidy)
