@@ -22,6 +22,8 @@ args <- commandArgs(trailingOnly = TRUE)
 bam_dir <- args[1]
 binsize <- args[2]
 ploidy <- args[3]
+binsize <- as.integer(binsize)
+ploidy <- as.integer(ploidy)
 bins <- getBinAnnotations(binSize=binsize, genome="hg38")
 readCounts <- binReadCounts(bins, path = bam_dir)
 files <- list.files(bam_dir, pattern = "\\.bam$", full.names = TRUE)
