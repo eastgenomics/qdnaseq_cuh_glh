@@ -1,0 +1,178 @@
+---
+title: "absolute_copy_number"
+author: "Nadia Mohammed and Sophie Paul"
+date: "13/06/2023"
+output: html_document
+---
+
+
+# QDNASeq pipeline
+
+### Step 1: Install and Load libraries
+
+```{r}
+library(tidyverse)
+library(QDNAseq)
+library(QDNAseq.hg38)
+library(ACE)
+library(MatrixGenerics)
+library(IRanges)
+library(GenomicRanges)
+library(Matrix)
+```
+
+### Step 2: Read in bin annotations for UCSC hg38 genome
+
+Note: binsize can be adjusted. There are certain sizes that are supported (see qdnaseq.hg38 module for info)
+
+```{r}
+# Size of bin annotation can be 1, 5, 10, 15, 30, 50, 100,
+# 500 and 1000 kbp for the human genome build hg38
+binsize <- 50
+bins <- getBinAnnotations(binSize=binsize, genome="hg38")
+```
+
+### Step 3: Read in BAM(s) and retrieve file name
+
+You can read in a directory of BAM files, create object with bam file name for downstream output naming
+
+```{r}
+readCounts <- binReadCounts(bins, path = "/home/software/bams")
+bam_dir <- "/home/software/bams"
+filename <- list.files(bam_dir, full.names = FALSE)
+filename <- tools::file_path_sans_ext(filename)
+```
+
+### Step 4: Run CNV calling algo
+
+Will initially generate segmented copy number data.
+
+```{r}
+#generate segmented read count plot
+#segmentation used (sqrt(x + 3/8) to 
+#stabilise variance of a Poisson distribution
+#Blacklist filter set to 100 to not restrict filtering
+#and allow overlap initially
+copy_Numbers_segmented <- readCounts %>%
+  applyFilters(residual=TRUE, blacklist=TRUE, chromosomes=NA) %>%
+  # Estimate and correct read counts as a function of GC content and
+  # mappability (removes further noise from e.g. FFPE)
+  estimateCorrection() %>%
+  correctBins() %>%
+
+  # Normalise and smooth corrected read counts
+  smoothOutlierBins()  %>%
+  normalizeBins() %>%
+  segmentBins(transformFun="sqrt")
+
+```
+
+Will next generate the normalised segmented calls for final relative CNV profile.
+
+```{r}
+# Generate called read count plots
+# for final CNV call profiles
+copyNumbersCalled <- readCounts %>%
+
+    # Filter reads based on a) residuals after fitting to a model, 
+    # and b) on amount  of acceptable overlap with 
+    # blacklisted (i.e. problematic) regions/known artifacts
+    applyFilters(residual=TRUE, blacklist=TRUE, chromosomes=NA) %>%
+
+    # Estimate and correct read counts as a function of GC content and
+    # mappability (removes further noise from e.g. FFPE)
+    estimateCorrection() %>%
+    correctBins() %>%
+
+    # Normalise and smooth corrected read counts
+    normalizeBins() %>%
+    smoothOutlierBins() %>%
+
+    # Segment bins: i.e. group similar regions together
+    # in a single "line" or "window" in terms of read count value
+    segmentBins(transformFun="sqrt") %>%
+    normalizeSegmentedBins() %>%
+    callBins()
+```
+
+### Step 5: Save plot output
+
+```{r}
+#PNG naming needs fixing - "%s_" generates error
+#Error in png(filename = "%s_called_copy_numbers.png", width = 1300, height = 800) : 
+#  invalid 'filename'
+png(filename = paste0(filename, ".copy_number_segmented.png"), width = 1300, height = 800)
+plot(copy_Numbers_segmented)
+dev.off()
+
+png(filename = paste0(filename, ".called_copy_numbers.png"), width = 1300, height = 800)
+plot(copyNumbersCalled)
+dev.off()
+```
+
+### Step 6: Save tabular data
+
+```{r}
+## Summarised calls - one file per sample
+QDNAseq::exportBins(copyNumbersCalled, format = "seg", type = "calls",
+                    file = paste("%s.summarised_calls_binsize_",binsize,".tsv", sep = ""))
+## Raw calls - one file that contains *all* samples together MAY NOT NEED THIS FUNCTION
+QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls",
+                    file = paste(filename,".all_calls_binsize_",binsize,"_merged.raw_calls_all_depths.tsv",
+                                 sep = ""))
+## Write out raw calls - one file that contains *all* samples together
+#qDNAseq_raw_file <- QDNAseq::exportBins(copyNumbersCalled, format = "tsv", type = "calls",
+#                    file = paste("all_calls_binsize",binsize,"_merged.raw_calls_all_depths.tsv", sep = ""))
+```
+
+### Step 7: Use qDNAseq object to retrieve absolute copy number
+
+Note: This step has used "ACE" package to estimate the absolute copy number. 
+
+```{r}
+perform_copy_numbers_analysis <- function(object, QDNAseqobjectsample){
+  # Perform model fitting on a single sample
+  model1 <- singlemodel(object, QDNAseqobjectsample = QDNAseqobjectsample)
+  # Select best fit by examining error lists (cellularity where relative error is lowest)
+  bestfit1 <- model1$minima[tail(which(model1$rerror==min(model1$rerror)), 1)]
+  besterror1 <- min(model1$rerror)
+  lastfit1 <- tail(model1$minima, 1)
+  lasterror1 <- tail(model1$rerror, 1)
+  # Use best fit and best best error to select best model for absolute copy number plot of sample
+  # Distinguish plots on sample with "QDNAseqobjectsample" parameter
+  png(paste0(filename,"_plot.png"))
+  #Plot absolute copy number for sample
+  absolute_plot <- singleplot(object, QDNAseqobjectsample = QDNAseqobjectsample, cellularity = bestfit1,
+             error = besterror1, standard = model1$standard,
+             title = paste0(filename, "- binsize", binsize,"kbp_- 2N fit 1"))
+  # save single plot
+  ggsave(paste0(filename, "_absoluteCN_plot.png"), absolute_plot, limitsize = FALSE)
+  dev.off()
+
+  # Generate error list plot with title name
+  png(paste0(filename,"_errorplot.png"))
+  print(model1$errorplot + ggtitle(paste0("sample ", QDNAseqobjectsample, " - errorlist")) +
+    theme(plot.title = element_text(hjust = 0.5)))
+  dev.off()
+
+  #generate data frame with absolute copy number
+  template <- objectsampletotemplate(object, index = QDNAseqobjectsample)
+  write.table(template, file = paste0(filename,"absolute_copy_number",".tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+
+  # df with adjusted segments
+  adjusted_segments <- getadjustedsegments(template, log = TRUE)
+  write.table(adjusted_segments, file = paste0(filename,"_adjusted_segments.tsv"), sep =    "\t", quote = FALSE, row.names = FALSE)
+
+}
+
+perform_copy_numbers_analysis(copyNumbersCalled, QDNAseqobjectsample = 1)
+
+```
+
+### Step 7 : Print version info regarding R packages
+
+```{r}
+sessionInfo()
+```
+
+ 
